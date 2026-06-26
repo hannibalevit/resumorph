@@ -1,0 +1,1 @@
+Answer application form fields using the tailored resume and job context. Short, direct, human-sounding. Return JSON only.

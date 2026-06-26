@@ -1,0 +1,8 @@
+extension/node_modules/
+server/.venv/
+server/.env
+server/*.db
+server/.pytest_cache/
+server/**/__pycache__/
+server/**/*.pyc
+.DS_Store
