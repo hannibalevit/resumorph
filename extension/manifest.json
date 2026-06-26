@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Resume Tailor",
+  "description": "Generate a tailored resume from a saved base resume and the active job page.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Resume Tailor",
+    "default_icon": {
+      "16": "icons/action-black-16.png",
+      "32": "icons/action-black-32.png",
+      "48": "icons/action-black-48.png",
+      "128": "icons/action-black-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/action-black-16.png",
+    "32": "icons/action-black-32.png",
+    "48": "icons/action-black-48.png",
+    "128": "icons/action-black-128.png"
+  },
+  "background": {
+    "service_worker": "assets/serviceWorker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
+  "permissions": ["sidePanel", "activeTab", "storage", "scripting", "tabs", "downloads"],
+  "host_permissions": ["http://localhost:8000/*", "https://*/*", "http://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["assets/pageAssistant.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [{
+    "resources": ["icons/icon-32.png"],
+    "matches": ["http://*/*", "https://*/*"]
+  }]
+}

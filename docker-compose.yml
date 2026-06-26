@@ -1,0 +1,24 @@
+services:
+  server:
+    build: ./server
+    ports:
+      - "8000:8000"
+    volumes:
+      - resume_tailor_data:/data
+    environment:
+      DATABASE_URL: sqlite:////data/resume_tailor.db
+      ALLOWED_ORIGINS: "*"
+      # Optional: set API keys here, or configure them later in the extension Settings UI.
+      # OPENAI_API_KEY: ""
+      # ANTHROPIC_API_KEY: ""
+      # GOOGLE_API_KEY: ""
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  resume_tailor_data:
