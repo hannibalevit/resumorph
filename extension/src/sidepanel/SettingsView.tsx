@@ -17,6 +17,10 @@ type SettingsViewProps = {
   onResumeSaved?: () => void;
 };
 
+function ButtonSpinner() {
+  return <span className="button-spinner" aria-hidden="true" />;
+}
+
 function providerConnection(config: ProviderConfig | undefined): { className: string; label: string } {
   if (config?.lastTestStatus === "success") return { className: "connected", label: "Connected" };
   if (config?.lastTestStatus === "failed") return { className: "failed", label: "Failed" };
@@ -193,12 +197,15 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const defaultModels = defaultProvider ? availableModels[defaultProvider] ?? [] : [];
   const saveDefault = async () => {
     if (!defaultProvider || !settings?.defaultModel) return;
+    setBusy("default-model");
     try {
       const value = await api.setDefaultProvider(defaultProvider, settings.defaultModel);
       setSettings(value);
       setMessage("Default LLM updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not set default.");
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -270,6 +277,19 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     }
   };
 
+  const deleteProvider = async (provider: ProviderName) => {
+    setBusy(`delete-${provider}`);
+    try {
+      await api.deleteProvider(provider);
+      await load();
+      setMessage(`${providerLabel(provider)} key cleared.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not clear provider key.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return <section className="settings-view">
     <h2>Settings</h2>
     <nav className="settings-tabs" aria-label="Settings sections">
@@ -282,7 +302,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       <h3>Base resume</h3>
       <p className="muted">{resumePresent ? "A base resume is saved on the local backend." : "No base resume is saved yet."}</p>
       <label className={`secondary upload-control ${busy === "resume" ? "disabled" : ""}`}>
-        {busy === "resume" ? "Uploading…" : resumePresent ? "Replace base resume" : "Upload base resume"}
+        {busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Uploading..." : resumePresent ? "Replace base resume" : "Upload base resume"}
         <input type="file" accept=".txt,.md,.pdf,.doc,.docx" onChange={(event) => void uploadResume(event)} disabled={busy !== null} />
       </label>
       {resumeText && <textarea className="resume-preview" readOnly value={resumeText} aria-label="Base resume text" />}
@@ -304,11 +324,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}
         </select> : <input placeholder="Model" value={models[provider.id] ?? ""} onChange={(event) => setModels((value) => ({ ...value, [provider.id]: event.target.value }))} />}
         <div className="actions">
-          <button className="primary" onClick={() => void save(provider.id)} disabled={busy !== null}>Save key</button>
-          {providerConfig?.isEnabled && <button className="secondary" onClick={() => void saveModel(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `model-${provider.id}` ? "Saving…" : "Save model"}</button>}
-          <button className="secondary" onClick={() => void test(provider.id)} disabled={busy !== null}>{busy === `test-${provider.id}` ? "Testing…" : "Test connection"}</button>
-          {providerConfig?.isEnabled && <button className="secondary" onClick={() => void loadModels(provider.id, undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] ? "Loading…" : "Reload models"}</button>}
-          {providerConfig?.isEnabled && <button className="danger compact" onClick={() => void api.deleteProvider(provider.id).then(load)}>Clear key</button>}
+          <button className="primary" onClick={() => void save(provider.id)} disabled={busy !== null}>{busy === `save-${provider.id}` && <ButtonSpinner />}{busy === `save-${provider.id}` ? "Saving..." : "Save key"}</button>
+          {providerConfig?.isEnabled && <button className="secondary" onClick={() => void saveModel(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `model-${provider.id}` && <ButtonSpinner />}{busy === `model-${provider.id}` ? "Saving..." : "Save model"}</button>}
+          <button className="secondary" onClick={() => void test(provider.id)} disabled={busy !== null}>{busy === `test-${provider.id}` && <ButtonSpinner />}{busy === `test-${provider.id}` ? "Testing..." : "Test connection"}</button>
+          {providerConfig?.isEnabled && <button className="secondary" onClick={() => void loadModels(provider.id, undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
+          {providerConfig?.isEnabled && <button className="danger compact" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : "Clear key"}</button>}
         </div>
       </section>;
       })}
@@ -323,7 +343,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <option value="">{defaultProvider && !defaultModels.length ? "No cached models — use Reload models" : "Choose model"}</option>
           {defaultModels.map((model) => <option key={model} value={model}>{model}</option>)}
         </select>
-        <button className="primary" disabled={!defaultProvider || !settings?.defaultModel || busy !== null} onClick={() => void saveDefault()}>{busy === "default-model" ? "Saving…" : "Save default"}</button>
+        <button className="primary" disabled={!defaultProvider || !settings?.defaultModel || busy !== null} onClick={() => void saveDefault()}>{busy === "default-model" && <ButtonSpinner />}{busy === "default-model" ? "Saving..." : "Save default"}</button>
       </section>
     </section> : <section className="settings-panel">
       <p className="muted">Each task uses the default LLM until you choose a custom configured provider and model here. Vacancy context is saved after scanning, so resume generation can switch providers later without losing context.</p>
@@ -345,7 +365,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
             <option value="">{provider && !modelsForProvider.length ? "No cached models — reload in LLM models" : "Choose model"}</option>
             {modelsForProvider.map((model) => <option key={model} value={model}>{model}</option>)}
           </select>
-          {taskSetting?.isCustom && <button className="secondary compact" disabled={busy !== null} onClick={() => void clearTaskProvider(task.id)}>Use default</button>}
+          {taskSetting?.isCustom && <button className="secondary compact" disabled={busy !== null} onClick={() => void clearTaskProvider(task.id)}>{busy === `task-${task.id}` && <ButtonSpinner />}{busy === `task-${task.id}` ? "Saving..." : "Use default"}</button>}
           {taskSetting && <small>{providerLabel(taskSetting.provider)} · {taskSetting.model}</small>}
         </section>;
       })}
