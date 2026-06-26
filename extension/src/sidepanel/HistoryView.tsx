@@ -5,6 +5,10 @@ type HistoryViewProps = {
   onDeleted?: (id: string) => void;
 };
 
+function ButtonSpinner() {
+  return <span className="button-spinner" aria-hidden="true" />;
+}
+
 function downloadArtifact(artifact: ArtifactDetail): void {
   if (!artifact.base64File) return;
   const bytes = Uint8Array.from(atob(artifact.base64File), (char) => char.charCodeAt(0));
@@ -19,13 +23,18 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
   const [detail, setDetail] = useState<AdminJobDetail | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactDetail[]>([]);
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [copiedArtifactId, setCopiedArtifactId] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (showProgress = false) => {
+    if (showProgress) setBusy("search");
     try {
       const result = await api.adminSessions(search, provider);
       setItems(result.items);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load history.");
+    } finally {
+      if (showProgress) setBusy(null);
     }
   };
 
@@ -34,17 +43,21 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
   }, []);
 
   const open = async (id: string) => {
+    setBusy(`open-${id}`);
     try {
       const [job, files] = await Promise.all([api.adminSession(id), api.adminArtifacts(id)]);
       setDetail(job);
       setArtifacts(files);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not open job.");
+    } finally {
+      setBusy(null);
     }
   };
 
   const deleteJob = async (id: string) => {
     if (!confirm("Delete this job, generated files, and saved LLM artifacts?")) return;
+    setBusy(`delete-${id}`);
     try {
       await api.deleteSession(id);
       setItems((current) => current.filter((item) => item.id !== id));
@@ -56,13 +69,28 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
       setMessage("Job deleted from history.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not delete job.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copyText = async (artifact: ArtifactDetail) => {
+    const body = typeof artifact.contentJson.body === "string" ? artifact.contentJson.body : "";
+    if (!body) return;
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopiedArtifactId(artifact.id);
+      window.setTimeout(() => setCopiedArtifactId((current) => current === artifact.id ? null : current), 1600);
+      setMessage("Text copied.");
+    } catch {
+      setMessage("Could not copy text.");
     }
   };
 
   if (detail) return <section className="history-view">
     <div className="detail-toolbar">
       <button className="secondary" onClick={() => setDetail(null)}>← History</button>
-      <button className="danger compact" onClick={() => void deleteJob(detail.id)}>Delete job</button>
+      <button className="danger compact" disabled={busy !== null} onClick={() => void deleteJob(detail.id)}>{busy === `delete-${detail.id}` && <ButtonSpinner />}{busy === `delete-${detail.id}` ? "Deleting..." : "Delete job"}</button>
     </div>
     <h2>{detail.companyName || "Unknown company"} | {detail.positionTitle || "Untitled role"}</h2>
     <p>{detail.location || "Location not specified"} · {detail.hostname}</p>
@@ -79,7 +107,7 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
       <strong>{artifact.title}</strong>
       <small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>
       {artifact.base64File && <button className="secondary compact" onClick={() => downloadArtifact(artifact)}>Download</button>}
-      {typeof artifact.contentJson.body === "string" && <button className="secondary compact" onClick={() => void navigator.clipboard.writeText(String(artifact.contentJson.body))}>Copy text</button>}
+      {typeof artifact.contentJson.body === "string" && <button className="secondary compact" onClick={() => void copyText(artifact)}>{copiedArtifactId === artifact.id ? "Copied" : "Copy text"}</button>}
     </article>)}
     <p className="status">{message}</p>
   </section>;
@@ -94,15 +122,15 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
         <option value="gemini">Gemini</option>
         <option value="claude">Claude</option>
       </select>
-      <button className="secondary" onClick={() => void load()}>Search</button>
+      <button className="secondary" disabled={busy !== null} onClick={() => void load(true)}>{busy === "search" && <ButtonSpinner />}{busy === "search" ? "Searching..." : "Search"}</button>
     </div>
-    {items.map((item) => <article className="history-item" key={item.id} onClick={() => void open(item.id)}>
+    {items.map((item) => <article className="history-item" key={item.id} onClick={() => { if (busy === null) void open(item.id); }}>
       <div className="history-item-main">
         <strong>{item.title}</strong>
         <span>{item.location || "Location not specified"}</span>
         <small>{item.hostname} · {item.llmProviderUsed || "no provider"} · {new Date(item.updatedAt).toLocaleString()}</small>
       </div>
-      <button className="danger compact" onClick={(event) => { event.stopPropagation(); void deleteJob(item.id); }}>Delete</button>
+      <button className="danger compact" disabled={busy !== null} onClick={(event) => { event.stopPropagation(); void deleteJob(item.id); }}>{busy === `delete-${item.id}` && <ButtonSpinner />}{busy === `delete-${item.id}` ? "Deleting..." : "Delete"}</button>
     </article>)}
     {items.length === 0 && <p className="muted">No saved job sessions.</p>}
     <p className="status">{message}</p>

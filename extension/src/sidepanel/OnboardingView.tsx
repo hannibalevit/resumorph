@@ -19,6 +19,10 @@ function providerLabel(provider: ProviderName): string {
   return PROVIDERS.find((item) => item.id === provider)?.label ?? provider;
 }
 
+function ButtonSpinner() {
+  return <span className="button-spinner" aria-hidden="true" />;
+}
+
 function providerConnection(config: ProviderSettings["providers"][number] | undefined): { className: string; label: string } {
   if (config?.lastTestStatus === "success") return { className: "connected", label: "Connected" };
   if (config?.lastTestStatus === "failed") return { className: "failed", label: "Failed" };
@@ -215,7 +219,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
           <input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder={DEFAULT_API_BASE_URL} disabled={busy !== null} />
         </label>
         <div className="onboarding-actions">
-          <button className="primary" onClick={() => void testBackend()} disabled={busy !== null}>{busy === "backend" || busy === "initial" ? "Checking..." : "Connect"}</button>
+          <button className="primary" onClick={() => void testBackend()} disabled={busy !== null}>{(busy === "backend" || busy === "initial") && <ButtonSpinner />}{busy === "backend" || busy === "initial" ? "Checking..." : "Connect"}</button>
         </div>
       </section>}
 
@@ -233,11 +237,11 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
             <small>{config?.isEnabled ? config.keyMask : "No key saved"}</small>
             <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => setKeys((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />
             <input value={models[provider.id] ?? ""} placeholder="Model, optional" onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />
-            <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` ? "Checking..." : "Verify and save"}</button>
+            <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Checking..." : "Verify and save"}</button>
           </section>;
         })}
         <div className="onboarding-actions">
-          <button className="primary" onClick={() => void continueToResume()} disabled={busy !== null || !enabledProviders.length}>Continue</button>
+          <button className="primary" onClick={() => void continueToResume()} disabled={busy !== null || !enabledProviders.length}>{busy === "resume-check" && <ButtonSpinner />}{busy === "resume-check" ? "Checking..." : "Continue"}</button>
         </div>
       </section>}
 
@@ -245,7 +249,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
         <h2>Add your base resume</h2>
         <p>This is the source version used to create tailored resumes for specific jobs.</p>
         <label className={`secondary upload-control ${busy === "resume" ? "disabled" : ""}`}>
-          {busy === "resume" ? "Uploading..." : resumeText ? "Replace resume" : "Choose file"}
+          {busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Uploading..." : resumeText ? "Replace resume" : "Choose file"}
           <input type="file" accept=".txt,.md,.pdf,.doc,.docx" onChange={(event) => void uploadResume(event)} disabled={busy !== null} />
         </label>
         {resumeText && <textarea className="resume-preview onboarding-resume-preview" readOnly value={resumeText} aria-label="Base resume preview" />}

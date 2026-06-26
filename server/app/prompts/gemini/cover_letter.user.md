@@ -1,4 +1,4 @@
-Cover letter for $role at $company. 3–4 paragraphs. Facts only, no invented details, no placeholders except closing name.
+Cover letter for $role at $company. No placeholders except the closing name.
 
 Job:
 $job_context_json
