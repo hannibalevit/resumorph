@@ -22,6 +22,10 @@ export type PageSnapshot = {
   capturedAt: string;
   visibleText: string;
   selectedText?: string;
+  primaryJobText?: string;
+  primaryJobSource?: string;
+  primaryJobConfidence?: number;
+  extractionWarnings: string[];
   meta: Record<string, string | undefined>;
   jsonLd: unknown[];
   headings: Array<{ level: number; text: string }>;

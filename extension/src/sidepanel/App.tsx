@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
+import { isBlockedUrl } from "../shared/blockedSites";
 import { EXTENSION_ENABLED_STORAGE_KEY, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
@@ -64,7 +65,8 @@ function normalizeUrl(url: string): string {
 
 function createManualPageSnapshot(text: string, tab: ActiveTab, session: JobSession | null): PageSnapshot {
   const fallbackUrl = `manual://vacancy/${Date.now()}`;
-  const url = session?.sourceUrl || (tab.url && tab.url.trim() ? tab.url : fallbackUrl);
+  const tabUrl = tab.url && tab.url.trim() && !isBlockedUrl(tab.url) ? tab.url : undefined;
+  const url = session?.sourceUrl || tabUrl || fallbackUrl;
   const title = session ? tabName(session) : tab.title?.trim() || "Manual vacancy";
   const hostname = (() => {
     if (session?.hostname) return session.hostname;
@@ -79,6 +81,10 @@ function createManualPageSnapshot(text: string, tab: ActiveTab, session: JobSess
     hostname,
     capturedAt: new Date().toISOString(),
     visibleText: text.slice(0, MAX_SCAN_TEXT_LENGTH),
+    primaryJobText: text.slice(0, MAX_SCAN_TEXT_LENGTH),
+    primaryJobSource: "manual_input",
+    primaryJobConfidence: 1,
+    extractionWarnings: text.length > MAX_SCAN_TEXT_LENGTH ? ["Pasted text was truncated to 80,000 characters."] : [],
     meta: { description: lines.slice(0, 6).join(" ").slice(0, 500) || undefined },
     jsonLd: [],
     headings: lines.slice(0, 8).map((line, index) => ({ level: index === 0 ? 1 : 2, text: line.slice(0, 500) })),
@@ -144,6 +150,7 @@ export function App() {
 
   const matchActiveTab = useCallback(async (tab: ActiveTab) => {
     if (!tab.url || !/^https?:/.test(tab.url)) { setActiveSession(null); return; }
+    if (isBlockedUrl(tab.url)) { setActiveSession(null); setStatus("This site isn't related to job search, so scanning is disabled here."); return; }
     try {
       const match = await api.match(tab.url, tab.title || "");
       if (match.matched && match.jobSessionId) { await selectSession(match.jobSessionId); setStatus("Matched the current page to a saved job."); }
@@ -349,13 +356,16 @@ export function App() {
   };
 
   const context = activeSession?.jobContext;
+  const snapshot = activeSession?.rawPageSnapshot;
   const artifactCount = useMemo(() => activeSession?.artifacts.length ?? 0, [activeSession]);
   const visibleSessions = useMemo(() => sessions.filter((session) => !closedSessionIds.has(session.id)), [closedSessionIds, sessions]);
   const hasResumeArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "resume"));
   const hasCoverLetterArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "cover_letter"));
-  const actionsDisabled = busy !== null || backend !== "connected" || !extensionActive;
-  const manualScanDisabled = busy !== null || backend !== "connected" || !manualJobText.trim();
-  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession;
+  const siteBlocked = isBlockedUrl(activeTab.url);
+  const actionsDisabled = busy !== null || backend !== "connected" || !extensionActive || siteBlocked;
+  const manualScanDisabled = busy !== null || backend !== "connected" || !extensionActive || !manualJobText.trim();
+  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession || siteBlocked;
+  const connectionLabel = !extensionActive ? "disabled" : backend;
 
   if (showOnboarding === null) {
     return <main className="panel onboarding-shell"><section className="onboarding-card"><p className="status">Loading setup...</p></section></main>;
@@ -382,10 +392,10 @@ export function App() {
     </section>
     <p className="status" role="status">{status}</p>
     <nav className="tabs" aria-label="Job sessions">{visibleSessions.length === 0 ? <span className="empty">No open job tabs</span> : visibleSessions.map((session) => <div key={session.id} className={session.id === activeSession?.id ? "tab-wrap active" : "tab-wrap"}><button className="tab" onClick={() => void selectSession(session.id)} title={tabName(session)}>{tabName(session)}</button><button className="close-tab" aria-label={`Close ${tabName(session)}`} title="Close tab" onClick={() => void closeSession(session.id)}>×</button></div>)}</nav>
-    {!activeSession ? <section className="neutral"><h2>Scan a vacancy</h2><p>Open a job listing or application page, then scan it. The extension never scans or sends page data without your click.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section> : <section className="job">
+    {!activeSession ? (siteBlocked ? <section className="neutral"><h2>Not a job site</h2><p>Resume Tailor is disabled on this site because it isn't related to job search.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section> : <section className="neutral"><h2>Scan a vacancy</h2><p>Open a job listing or application page, then scan it. The extension never scans or sends page data without your click.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section>) : <section className="job">
       <div className="job-title"><div><h2>{context?.positionTitle || "Untitled role"}</h2><p>{context?.companyName || "Unknown company"}{context?.location ? ` · ${context.location}` : ""}</p></div><span className="confidence">{Math.round((context?.confidence ?? 0) * 100)}% extracted</span></div>
       <a href={activeSession.sourceUrl} target="_blank" rel="noreferrer">Open source vacancy ↗</a>
-      <div className="badges"><span>Scanned</span>{artifactCount > 0 && <span>{artifactCount} file{artifactCount === 1 ? "" : "s"}</span>}{activeSession.rawPageSnapshot.formFields.length > 0 && <span>Form detected</span>}</div>
+      <div className="badges"><span>Scanned</span>{artifactCount > 0 && <span>{artifactCount} file{artifactCount === 1 ? "" : "s"}</span>}{(snapshot?.formFields.length ?? 0) > 0 && <span>Form detected</span>}</div>
       <section><h3>Summary</h3><p>{context?.jobDescription?.slice(0, 800) || "No description could be extracted."}</p></section>
       <section><h3>Requirements</h3><ul>{context?.requirements.length ? context.requirements.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
       <section><h3>Responsibilities</h3><ul>{context?.responsibilities.length ? context.responsibilities.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
@@ -393,10 +403,10 @@ export function App() {
       {coverLetterBody && <section><div className="section-heading"><h3>Cover letter</h3><button className={coverLetterCopied ? "icon compact copy-button copied" : "icon compact copy-button"} type="button" aria-label={coverLetterCopied ? "Cover letter copied" : "Copy cover letter"} title={coverLetterCopied ? "Copied" : "Copy cover letter"} onClick={() => void copyCoverLetter()}>{coverLetterCopied ? "Copied" : "⧉"}</button></div><article className={coverLetterExpanded ? "cover-letter-card expanded" : "cover-letter-card"}><p>{coverLetterBody}</p></article><button className="secondary compact show-more-button" type="button" onClick={() => setCoverLetterExpanded((current) => !current)}>{coverLetterExpanded ? "Show less" : "Show more"}</button></section>}
       {activeSession.artifacts.length > 0 && <section><h3>Saved files</h3>{activeSession.artifacts.map((artifact) => <article className="artifact" key={artifact.id}><strong>{artifact.title}</strong><small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>{artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>{busy === "download" && <ButtonSpinner />}{busy === "download" ? "Downloading..." : "Download"}</button>}</article>)}</section>}
       {!resumePresent && <p className="warning">Upload a base resume before generating tailored materials.</p>}
-      <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Snapshot characters</dt><dd>{activeSession.rawPageSnapshot.visibleText.length}</dd><dt>Detected form fields</dt><dd>{activeSession.rawPageSnapshot.formFields.length}</dd><dt>Warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>
+      <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Full visible characters</dt><dd>{snapshot?.visibleText.length ?? 0}</dd><dt>Primary source</dt><dd>{snapshot?.primaryJobSource || "full_visible_text"}</dd><dt>Primary characters</dt><dd>{snapshot?.primaryJobText?.length ?? 0}</dd><dt>Detected form fields</dt><dd>{snapshot?.formFields.length ?? 0}</dd><dt>Extraction warnings</dt><dd>{snapshot?.extractionWarnings?.join("; ") || "None"}</dd><dt>LLM warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>
     </section>}</>}
     <footer className="app-footer" aria-label="Extension controls">
-      <span className={`connection ${backend}`}>● {backend}</span>
+      <span className={`connection ${connectionLabel}`}>● {connectionLabel}</span>
       <div className="footer-actions">
         <button className={`footer-button ${view === "jobs" ? "active" : ""}`} data-tooltip="Jobs" aria-label="Jobs" title="Jobs" onClick={() => setView("jobs")}>▦</button>
         <button className={`footer-button ${view === "history" ? "active" : ""}`} data-tooltip="History" aria-label="History" title="History" onClick={() => setView((current) => current === "history" ? "jobs" : "history")}>◷</button>
