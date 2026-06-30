@@ -36,6 +36,7 @@ export const api = {
   getResume: () => request<{ text: string }>("/api/profile/base-resume"),
   saveResume: (text: string) => request<{ text: string }>("/api/profile/base-resume", { method: "POST", body: JSON.stringify({ text }) }),
   deleteSession: (id: string) => request<void>(`/api/job-sessions/${id}`, { method: "DELETE" }),
+  clearSessions: () => request<void>("/api/job-sessions", { method: "DELETE" }),
   generateResume: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST" }),
   generateCoverLetter: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST" }),
   fieldAnswer: (id: string, field: DetectedFormField) => request<FieldAnswer>(`/api/job-sessions/${id}/generate-field-answer`, { method: "POST", body: JSON.stringify({ field, tone: "professional", maxLength: 1200 }) }),
