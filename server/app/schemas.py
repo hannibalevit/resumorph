@@ -41,7 +41,11 @@ class PageSnapshot(ApiModel):
     hostname: str = ""
     captured_at: str | None = Field(default=None, alias="capturedAt")
     visible_text: str = Field(alias="visibleText", max_length=80_000)
-    selected_text: str | None = Field(default=None, alias="selectedText")
+    selected_text: str | None = Field(default=None, alias="selectedText", max_length=80_000)
+    primary_job_text: str | None = Field(default=None, alias="primaryJobText", max_length=80_000)
+    primary_job_source: str | None = Field(default=None, alias="primaryJobSource")
+    primary_job_confidence: float | None = Field(default=None, alias="primaryJobConfidence")
+    extraction_warnings: list[str] = Field(default_factory=list, alias="extractionWarnings")
     meta: dict[str, str | None] = Field(default_factory=dict)
     json_ld: list[Any] = Field(default_factory=list, alias="jsonLd")
     headings: list[dict[str, Any]] = Field(default_factory=list)

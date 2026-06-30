@@ -1,8 +1,22 @@
 import { EXTENSION_ENABLED_STORAGE_KEY, getApiBaseUrl, isExtensionEnabled } from "../shared/storage";
+import { isBlockedUrl } from "../shared/blockedSites";
 
+// chrome.action.setIcon fetches each path itself; relative paths resolve
+// inconsistently from a module-type service worker and intermittently fail with
+// "Failed to fetch". Resolving to an absolute chrome-extension:// URL avoids that.
 const ACTION_ICON_PATHS = {
-  light: { 16: "icons/action-black-16.png", 32: "icons/action-black-32.png", 48: "icons/action-black-48.png", 128: "icons/action-black-128.png" },
-  dark: { 16: "icons/action-white-16.png", 32: "icons/action-white-32.png", 48: "icons/action-white-48.png", 128: "icons/action-white-128.png" },
+  light: {
+    16: chrome.runtime.getURL("icons/action-black-16.png"),
+    32: chrome.runtime.getURL("icons/action-black-32.png"),
+    48: chrome.runtime.getURL("icons/action-black-48.png"),
+    128: chrome.runtime.getURL("icons/action-black-128.png"),
+  },
+  dark: {
+    16: chrome.runtime.getURL("icons/action-white-16.png"),
+    32: chrome.runtime.getURL("icons/action-white-32.png"),
+    48: chrome.runtime.getURL("icons/action-white-48.png"),
+    128: chrome.runtime.getURL("icons/action-white-128.png"),
+  },
 };
 
 async function setActionTheme(isDark: boolean): Promise<void> {
@@ -49,7 +63,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "complete" || changeInfo.url) void notifyActiveTab(tabId);
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "COLOR_SCHEME_CHANGED") {
     void setActionTheme(Boolean(message.isDark)).then(() => sendResponse({ ok: true }));
     return true;
@@ -65,6 +79,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "GENERATE_FIELD_ANSWER") {
     void (async () => {
       try {
+        if (isBlockedUrl(sender.tab?.url)) throw new Error("This site isn't related to job search, so Resume Tailor is disabled here.");
         if (!await isExtensionEnabled()) throw new Error("Resume Tailor is disabled.");
         const apiBaseUrl = await getApiBaseUrl();
         const response = await fetch(`${apiBaseUrl}/api/job-sessions/${message.jobSessionId}/generate-field-answer`, {

@@ -12,6 +12,8 @@ SENSITIVE_TERMS = (
     "race", "ethnicity", "veteran",
 )
 MANUAL_TERMS = ("salary", "compensation", "work authorization", "visa", "relocat", "availability")
+MAX_SCAN_PROMPT_TEXT = 80_000
+PRIMARY_SCAN_TEXT_BUDGET = 45_000
 
 
 def normalize_url(value: str) -> str:
@@ -25,6 +27,42 @@ def canonical_job_key(snapshot: PageSnapshot) -> str:
     normalized = normalize_url(snapshot.normalized_url or snapshot.url)
     # Stable provider IDs in the path/query make the URL enough for an MVP.
     return normalized.lower()
+
+
+def _clip(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def compose_scan_page_text(snapshot: PageSnapshot) -> str:
+    """Give the model a focused extraction plus full-page context within one budget."""
+    selected = (snapshot.selected_text or "").strip()
+    primary = selected or (snapshot.primary_job_text or "").strip()
+    visible = (snapshot.visible_text or "").strip()
+
+    if not primary:
+        return _clip(f"Full visible page text:\n{visible}", MAX_SCAN_PROMPT_TEXT)
+
+    source = "selected_text" if selected else (snapshot.primary_job_source or "primary_extraction")
+    confidence = snapshot.primary_job_confidence
+    confidence_label = f", confidence {confidence:.2f}" if confidence is not None else ""
+    primary_part = _clip(
+        f"Primary extracted job text (source: {source}{confidence_label}):\n{primary}",
+        PRIMARY_SCAN_TEXT_BUDGET,
+    )
+
+    remaining = MAX_SCAN_PROMPT_TEXT - len(primary_part) - 160
+    if remaining <= 0 or not visible:
+        return primary_part
+
+    visible_part = _clip(
+        "Full visible page text fallback/context. Use it to recover details missing "
+        f"from the primary extraction, but beware navigation, similar jobs, and boilerplate:\n{visible}",
+        remaining,
+    )
+    return f"{primary_part}\n\n{visible_part}"
 
 
 def _lines(text: str) -> list[str]:
@@ -48,7 +86,7 @@ def _section_items(text: str, names: tuple[str, ...]) -> list[str]:
 
 def extract_context_fallback(snapshot: PageSnapshot) -> JobContext:
     """Extract only obvious on-page signals when no LLM key is configured."""
-    text = snapshot.selected_text or snapshot.visible_text
+    text = snapshot.selected_text or snapshot.primary_job_text or snapshot.visible_text
     lines = _lines(text)
     title = snapshot.title.split("|")[0].split(" - ")[0].strip() or None
     h1 = next((heading.get("text", "").strip() for heading in snapshot.headings if heading.get("level") == 1), "")
