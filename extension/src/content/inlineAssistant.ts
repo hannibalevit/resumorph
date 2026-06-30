@@ -1,5 +1,6 @@
 import { detectFormFields, findField } from "./formDetector";
 import type { DetectedFormField } from "../shared/sidepanelTypes";
+import { isBlockedUrl } from "./blockedSites";
 
 const BUTTON_CLASS = "resume-tailor-ai-button";
 const BUTTON_ICON = chrome.runtime.getURL("icons/icon-32.png");
@@ -9,6 +10,7 @@ const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
 const INVALIDATED_CONTEXT = /extension context invalidated|context invalidated/i;
 
 async function isExtensionEnabled(): Promise<boolean> {
+  if (isBlockedUrl(window.location.href)) return false;
   const result = await chrome.storage.local.get(EXTENSION_ENABLED_STORAGE_KEY) as { [EXTENSION_ENABLED_STORAGE_KEY]?: boolean };
   return result[EXTENSION_ENABLED_STORAGE_KEY] !== false;
 }
