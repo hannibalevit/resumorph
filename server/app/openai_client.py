@@ -4,6 +4,7 @@ import re
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, OpenAIError
 
 from app.config import get_settings
+from app.job_service import compose_scan_page_text
 from app.prompt_loader import render_prompt
 from app.schemas import DetectedFormField, FieldAnswerResponse, GenerateResumeRequest, JobContext, PageSnapshot, TailoredResume
 
@@ -85,7 +86,6 @@ async def extract_job_context(snapshot: PageSnapshot) -> JobContext:
     if not settings.openai_api_key:
         raise JobExtractionError("OPENAI_API_KEY is not configured on the backend.")
     client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds)
-    source = snapshot.selected_text or snapshot.visible_text
     prompt = render_prompt(
         "openai",
         "job_scan",
@@ -93,7 +93,7 @@ async def extract_job_context(snapshot: PageSnapshot) -> JobContext:
         url=snapshot.url,
         title=snapshot.title,
         headings=snapshot.headings[:12],
-        page_text=source[:80_000],
+        page_text=compose_scan_page_text(snapshot),
     )
     try:
         response = await client.responses.parse(

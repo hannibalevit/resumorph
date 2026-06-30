@@ -85,11 +85,11 @@ export function getVisibleText(element: Element): string {
   return cleanWhitespace((clone as HTMLElement).innerText || clone.textContent || "");
 }
 
-export function extractVisibleText(): string {
+export function extractVisibleText(maxLength = MAX_TEXT_LENGTH): string {
   const body = document.body;
   if (!body) {
     return "";
   }
 
-  return truncateText(dedupeLines(getVisibleText(body)));
+  return truncateText(dedupeLines(getVisibleText(body)), maxLength);
 }

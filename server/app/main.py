@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.document_generator import DOCX_MIME_TYPE, create_docx_resume, create_docx_text
 from app.file_parser import extract_resume_text_from_upload
-from app.job_service import canonical_job_key, extract_context_fallback, local_field_answer, missing_requirements, normalize_url
+from app.job_service import canonical_job_key, compose_scan_page_text, extract_context_fallback, local_field_answer, missing_requirements, normalize_url
 from app.models import AppSettingsModel, GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel, LlmProviderConfigModel, UserProfileModel
 from app.prompt_loader import render_prompt
 from app.security import SecretEncryptionError, decrypt_secret, encrypt_secret, mask_secret
@@ -489,7 +489,7 @@ async def scan_job(payload: ScanRequest, db: Session = Depends(get_db)) -> JobSe
         url=snapshot.url,
         title=snapshot.title,
         headings=snapshot.headings[:12],
-        page_text=(snapshot.selected_text or snapshot.visible_text)[:80_000],
+        page_text=compose_scan_page_text(snapshot),
     )
     try:
         context = JobContext.model_validate(await get_llm_provider(provider_name).generate_json(api_key, model, prompt.system, prompt.user, JobContext.model_json_schema(), 3000))
