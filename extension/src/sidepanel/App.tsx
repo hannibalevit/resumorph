@@ -376,7 +376,7 @@ export function App() {
   }
 
   return <main className="panel">
-    {view === "settings" ? <SettingsView onResumeSaved={() => { setResumePresent(true); setStatus("Base resume saved."); }} /> : view === "history" ? <HistoryView onDeleted={(id) => { setSessions((current) => current.filter((session) => session.id !== id)); if (activeSession?.id === id) setActiveSession(null); }} /> : <>
+    {view === "settings" ? <SettingsView onResumeSaved={() => { setResumePresent(true); setStatus("Base resume saved."); }} /> : view === "history" ? <HistoryView onDeleted={(id) => { setSessions((current) => current.filter((session) => session.id !== id)); if (activeSession?.id === id) { setActiveSession(null); setCoverLetter(null); void chrome.storage.local.remove("activeJobSessionId"); } }} onCleared={() => { setSessions([]); setActiveSession(null); setClosedSessionIds(new Set()); setCoverLetter(null); setStatus("Job history cleared."); void chrome.storage.local.remove("activeJobSessionId"); }} /> : <>
     <section className="actions page-actions">
       <button className="primary" onClick={() => void scan()} disabled={actionsDisabled}>{busy === "scan" && <ButtonSpinner />}{busy === "scan" ? "Scanning..." : activeSession ? "Rescan this page" : "Scan this page"}</button>
       <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>

@@ -3,6 +3,7 @@ import { api, type AdminJob, type AdminJobDetail, type ArtifactDetail } from "..
 
 type HistoryViewProps = {
   onDeleted?: (id: string) => void;
+  onCleared?: () => void;
 };
 
 function ButtonSpinner() {
@@ -16,8 +17,9 @@ function downloadArtifact(artifact: ArtifactDetail): void {
   void chrome.downloads.download({ url, filename: artifact.fileName || "artifact.docx", saveAs: true }).finally(() => setTimeout(() => URL.revokeObjectURL(url), 10_000));
 }
 
-export function HistoryView({ onDeleted }: HistoryViewProps) {
+export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
   const [items, setItems] = useState<AdminJob[]>([]);
+  const [totalJobCount, setTotalJobCount] = useState(0);
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("");
   const [detail, setDetail] = useState<AdminJobDetail | null>(null);
@@ -31,6 +33,7 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
     try {
       const result = await api.adminSessions(search, provider);
       setItems(result.items);
+      setTotalJobCount(result.total);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load history.");
     } finally {
@@ -61,6 +64,7 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
     try {
       await api.deleteSession(id);
       setItems((current) => current.filter((item) => item.id !== id));
+      setTotalJobCount((current) => Math.max(0, current - 1));
       if (detail?.id === id) {
         setDetail(null);
         setArtifacts([]);
@@ -69,6 +73,24 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
       setMessage("Job deleted from history.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not delete job.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clearHistory = async () => {
+    if (!confirm("Clear all job history, generated files, and saved LLM artifacts?")) return;
+    setBusy("clear-history");
+    try {
+      await api.clearSessions();
+      setItems([]);
+      setTotalJobCount(0);
+      setDetail(null);
+      setArtifacts([]);
+      onCleared?.();
+      setMessage("Job history cleared.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not clear job history.");
     } finally {
       setBusy(null);
     }
@@ -113,7 +135,10 @@ export function HistoryView({ onDeleted }: HistoryViewProps) {
   </section>;
 
   return <section className="history-view">
-    <h2>History</h2>
+    <div className="history-heading">
+      <h2>History</h2>
+      <button className="danger compact" disabled={busy !== null || totalJobCount === 0} onClick={() => void clearHistory()}>{busy === "clear-history" && <ButtonSpinner />}{busy === "clear-history" ? "Clearing..." : "Clear history"}</button>
+    </div>
     <div className="filters">
       <input placeholder="Search company or position" value={search} onChange={(event) => setSearch(event.target.value)} />
       <select value={provider} onChange={(event) => setProvider(event.target.value)}>

@@ -540,6 +540,14 @@ async def list_job_sessions(db: Session = Depends(get_db)) -> list[JobSessionSum
     return [session_summary(item) for item in sessions]
 
 
+@app.delete("/api/job-sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job_sessions(db: Session = Depends(get_db)) -> None:
+    sessions = db.scalars(select(JobSessionModel)).unique().all()
+    for session in sessions:
+        db.delete(session)
+    db.commit()
+
+
 @app.get("/api/job-sessions/{job_session_id}", response_model=JobSessionDetail)
 async def get_job_session(job_session_id: str, db: Session = Depends(get_db)) -> JobSessionDetail:
     session = db.get(JobSessionModel, job_session_id)
