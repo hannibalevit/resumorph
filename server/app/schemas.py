@@ -45,6 +45,9 @@ class PageSnapshot(ApiModel):
     primary_job_text: str | None = Field(default=None, alias="primaryJobText", max_length=80_000)
     primary_job_source: str | None = Field(default=None, alias="primaryJobSource")
     primary_job_confidence: float | None = Field(default=None, alias="primaryJobConfidence")
+    detected_company: str | None = Field(default=None, alias="detectedCompany")
+    detected_job_title: str | None = Field(default=None, alias="detectedJobTitle")
+    detected_location: str | None = Field(default=None, alias="detectedLocation")
     extraction_warnings: list[str] = Field(default_factory=list, alias="extractionWarnings")
     meta: dict[str, str | None] = Field(default_factory=dict)
     json_ld: list[Any] = Field(default_factory=list, alias="jsonLd")
@@ -361,6 +364,29 @@ class TailoredResume(ApiModel):
     language: str = "en"
     page_format: Literal["letter", "a4"] = Field(default="a4", alias="pageFormat")
     notes: ResumeNotes = Field(default_factory=ResumeNotes)
+
+
+class CoverLetterAchievement(ApiModel):
+    # "Bold lead phrase, impact sentence with a metric" — the career-ops bullet shape.
+    lead: str
+    impact: str
+
+
+class CoverLetter(ApiModel):
+    candidate_name: str = Field(alias="candidateName")
+    contact_info: str | None = Field(default=None, alias="contactInfo")
+    credentials: list[str] = Field(default_factory=list)
+    role_title: str = Field(alias="roleTitle")
+    company: str | None = None
+    dateline: str | None = None
+    greeting: str
+    opening: str
+    profile_intro: str = Field(alias="profileIntro")
+    achievements: list[CoverLetterAchievement] = Field(default_factory=list)
+    problems: str | None = None
+    closing: str
+    language_closing: str | None = Field(default=None, alias="languageClosing")
+    page_format: Literal["letter", "a4"] = Field(default="a4", alias="pageFormat")
 
 
 # Frozen copy of the pre-PDF-port TailoredResume shape, used exclusively by the

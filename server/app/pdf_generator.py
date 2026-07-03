@@ -1,28 +1,24 @@
-import base64
-import io
+import asyncio
 import re
-import tempfile
 from pathlib import Path
-from typing import Literal
-from uuid import uuid4
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from playwright.async_api import async_playwright
-from pypdf import PdfReader
+from weasyprint import HTML
 
-from app.schemas import TailoredResume
+from app.schemas import CoverLetter, TailoredResume
 
 PDF_MIME_TYPE = "application/pdf"
 
 TEMPLATES_DIR = Path(__file__).with_name("templates")
-FONTS_DIR = TEMPLATES_DIR / "fonts"
 
 _jinja_env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
     autoescape=select_autoescape(["html"]),
 )
 
-PAGE_WIDTH = {"letter": "8.5in", "a4": "210mm"}
+# CSS @page size keyword per paper format (drives physical page dimensions in
+# WeasyPrint; margins are set alongside it in the template's @page rule).
+PAGE_SIZE = {"letter": "letter", "a4": "A4"}
 
 
 class PdfGenerationError(Exception):
@@ -68,9 +64,6 @@ _SECTION_TITLE_RE = re.compile(
 )
 _TAG_RE = re.compile(r"<[^>]+>")
 _STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>[\s\S]*?</\1>", re.IGNORECASE)
-_FONT_REF_RE = re.compile(r"url\(\s*(['\"]?)\./fonts/([^'\")\s]+)\1\s*\)")
-
-_FONT_MIME = {"woff2": "font/woff2", "woff": "font/woff", "otf": "font/otf", "ttf": "font/ttf"}
 
 
 def _normalize_section_title(text: str) -> str:
@@ -177,7 +170,7 @@ def _sanitize_text(text: str, bump) -> str:
     t, n = re.subn("[​‌‍⁠﻿]", "", t)
     if n:
         bump("zero-width", n)
-    t, n = re.subn(" ", " ", t)
+    t, n = re.subn("\xa0", " ", t)
     if n:
         bump("nbsp", n)
     t, n = re.subn(r"\s*→\s*", " to ", t)
@@ -206,75 +199,57 @@ def _sanitize_text(text: str, bump) -> str:
     return t
 
 
-def inline_local_fonts(html: str, fonts_dir: Path = FONTS_DIR) -> str:
-    """Inline url('./fonts/...') references as base64 data: URLs.
+def _render_pdf_sync(html: str) -> tuple[bytes, int]:
+    """Render HTML to PDF bytes via WeasyPrint (synchronous, CPU-bound)."""
+    document = HTML(string=html).render()
+    pdf_bytes = document.write_pdf()
+    return pdf_bytes, len(document.pages)
 
-    Ported defensively from career-ops's generate-pdf.mjs even though the
-    current template only uses system fonts (so this is expected to be a
-    no-op today) — kept for future templates that may bundle local fonts.
+
+async def render_html_to_pdf(html: str) -> tuple[bytes, int]:
+    """Run the blocking WeasyPrint render in a thread so the event loop is free.
+
+    Paper size (letter/a4) and 0.6in margins are baked into the HTML's @page
+    CSS rule by the template — WeasyPrint reads them from there, so no
+    per-call format argument is needed (unlike the previous Playwright path,
+    which set margins via page.pdf() options).
     """
-    names = {match.group(2) for match in _FONT_REF_RE.finditer(html)}
-    if not names:
-        return html
-
-    data_urls: dict[str, str] = {}
-    for name in names:
-        font_path = (fonts_dir / name).resolve()
-        try:
-            font_path.relative_to(fonts_dir.resolve())
-        except ValueError:
-            continue
-        if not font_path.is_file():
-            continue
-        extension = font_path.suffix.lstrip(".").lower()
-        mime = _FONT_MIME.get(extension, "application/octet-stream")
-        encoded = base64.b64encode(font_path.read_bytes()).decode("ascii")
-        data_urls[name] = f"url('data:{mime};base64,{encoded}')"
-
-    def replace(match: re.Match[str]) -> str:
-        return data_urls.get(match.group(2), match.group(0))
-
-    return _FONT_REF_RE.sub(replace, html)
-
-
-async def render_html_to_pdf(html: str, page_format: Literal["letter", "a4"]) -> tuple[bytes, int]:
-    with tempfile.TemporaryDirectory(prefix="resume-pdf-") as temp_dir:
-        html_path = Path(temp_dir) / f"{uuid4()}.html"
-        html_path.write_text(html, encoding="utf-8")
-
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.goto(html_path.as_uri(), wait_until="load")
-                await page.evaluate("document.fonts.ready")
-                pdf_bytes = await page.pdf(
-                    format=page_format,
-                    print_background=True,
-                    margin={"top": "0.6in", "right": "0.6in", "bottom": "0.6in", "left": "0.6in"},
-                    prefer_css_page_size=False,
-                )
-            finally:
-                await browser.close()
-
-    page_count = len(PdfReader(io.BytesIO(pdf_bytes)).pages)
-    return pdf_bytes, page_count
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _render_pdf_sync, html)
 
 
 async def render_resume_pdf(resume: TailoredResume) -> tuple[bytes, int, dict[str, int]]:
-    page_width = PAGE_WIDTH.get(resume.page_format, PAGE_WIDTH["a4"])
+    page_size = PAGE_SIZE.get(resume.page_format, PAGE_SIZE["a4"])
     template = _jinja_env.get_template("cv_template.html")
-    html = template.render(resume=resume, page_width=page_width, lang=resume.language or "en")
+    html = template.render(resume=resume, page_size=page_size, lang=resume.language or "en")
 
     validate_section_order(html)
     html, replacements = normalize_text_for_ats(html)
-    html = inline_local_fonts(html)
 
     try:
-        pdf_bytes, page_count = await render_html_to_pdf(html, resume.page_format)
+        pdf_bytes, page_count = await render_html_to_pdf(html)
     except PdfGenerationError:
         raise
     except Exception as exc:
         raise PdfGenerationError(f"Failed to render resume PDF: {exc}") from exc
+
+    return pdf_bytes, page_count, replacements
+
+
+async def render_cover_letter_pdf(letter: CoverLetter) -> tuple[bytes, int, dict[str, int]]:
+    page_size = PAGE_SIZE.get(letter.page_format, PAGE_SIZE["a4"])
+    template = _jinja_env.get_template("cover_letter_template.html")
+    # Cover letters have no fixed section sequence, so validate_section_order
+    # (a resume-only guard) is intentionally skipped here.
+    html = template.render(letter=letter, page_size=page_size, lang="en")
+
+    html, replacements = normalize_text_for_ats(html)
+
+    try:
+        pdf_bytes, page_count = await render_html_to_pdf(html)
+    except PdfGenerationError:
+        raise
+    except Exception as exc:
+        raise PdfGenerationError(f"Failed to render cover letter PDF: {exc}") from exc
 
     return pdf_bytes, page_count, replacements

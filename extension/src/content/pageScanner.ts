@@ -1,5 +1,5 @@
 import { extractByDomScoring } from "./jobExtraction/domScoring";
-import { extractJsonLdJobPosting } from "./jobExtraction/extractJsonLdJobPosting";
+import { extractJsonLdJobPosting, readJsonLdMeta } from "./jobExtraction/extractJsonLdJobPosting";
 import { extractSelectedText } from "./jobExtraction/extractSelectedText";
 import { extractVisibleText, truncateText } from "./jobExtraction/extractVisibleText";
 import { runSiteSpecificExtractor } from "./jobExtraction/siteExtractors";
@@ -10,13 +10,26 @@ import type { PageSnapshot } from "../shared/sidepanelTypes";
 const MIN_SELECTED_TEXT_LENGTH = 300;
 const MAX_SNAPSHOT_TEXT_LENGTH = 80_000;
 
+type DetectedMeta = { company?: string; jobTitle?: string; location?: string };
+
 type PrimaryJobText = {
   text: string;
   source: JobExtractionSource;
   confidence: number;
   warnings: string[];
+  detected?: ExtractedJobPage["detected"];
   candidateBlocks?: Array<{ selector: string; text: string; score: number }>;
 };
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
 
 function normalizeUrl(url: string): string {
   const value = new URL(url);
@@ -63,6 +76,7 @@ function getPrimaryJobText(selectedText: string): PrimaryJobText | null {
       source: "json_ld_job_posting",
       confidence: jsonLdResult.confidence ?? 0.9,
       warnings,
+      detected: jsonLdResult.detected,
       candidateBlocks: candidateBlocks(jsonLdResult),
     };
   }
@@ -74,6 +88,7 @@ function getPrimaryJobText(selectedText: string): PrimaryJobText | null {
       source: "site_specific",
       confidence: siteResult.confidence ?? 0.8,
       warnings,
+      detected: siteResult.detected,
       candidateBlocks: candidateBlocks(siteResult),
     };
   }
@@ -85,6 +100,7 @@ function getPrimaryJobText(selectedText: string): PrimaryJobText | null {
       source: "dom_scoring",
       confidence: domResult.confidence ?? 0.6,
       warnings,
+      detected: domResult.detected,
       candidateBlocks: candidateBlocks(domResult),
     };
   }
@@ -98,6 +114,12 @@ export function createPageSnapshot(): PageSnapshot {
   const primary = getPrimaryJobText(selectedText);
   const visibleText = extractVisibleText(MAX_SNAPSHOT_TEXT_LENGTH);
   const fields = detectFormFields();
+  // The company name (and often the title/location) is frequently only in a page
+  // header/logo or structured data, never repeated in the job body the LLM sees.
+  // Forward the extractors' high-signal detections so the backend can use them.
+  const jsonLdMeta: DetectedMeta = readJsonLdMeta();
+  const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? undefined;
+  const detected: DetectedMeta = primary?.detected ?? {};
   return {
     url: location.href, normalizedUrl: normalizeUrl(location.href), title: document.title, hostname: location.hostname, capturedAt: new Date().toISOString(),
     visibleText,
@@ -105,6 +127,9 @@ export function createPageSnapshot(): PageSnapshot {
     primaryJobText: primary?.text || undefined,
     primaryJobSource: primary?.source,
     primaryJobConfidence: primary?.confidence,
+    detectedCompany: firstNonEmpty(detected.company, jsonLdMeta.company),
+    detectedJobTitle: firstNonEmpty(detected.jobTitle, jsonLdMeta.jobTitle, ogTitle),
+    detectedLocation: firstNonEmpty(detected.location, jsonLdMeta.location),
     extractionWarnings: primary?.warnings ?? [],
     meta: { description: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? undefined, ogTitle: document.querySelector('meta[property="og:title"]')?.getAttribute("content") ?? undefined, ogDescription: document.querySelector('meta[property="og:description"]')?.getAttribute("content") ?? undefined },
     jsonLd: jsonLd(), headings: [...document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')].slice(0, 40).map((node) => ({ level: Number(node.tagName.slice(1)), text: (node.innerText || "").trim().slice(0, 500) })).filter((item) => item.text),

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import Base, engine, get_db
-from app.document_generator import DOCX_MIME_TYPE, create_docx_resume, create_docx_text
+from app.document_generator import DOCX_MIME_TYPE, create_docx_resume
 from app.file_parser import extract_resume_text_from_upload
 from app.job_service import canonical_job_key, compose_scan_page_text, extract_context_fallback, local_field_answer, normalize_url
 from app.models import AppSettingsModel, GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel, LlmProviderConfigModel, UserProfileModel
@@ -20,11 +20,11 @@ from app.prompt_loader import render_prompt
 from app.security import SecretEncryptionError, decrypt_secret, encrypt_secret, mask_secret
 from app.llm.factory import get_llm_provider
 from app.openai_client import FieldAnswerGenerationError, JobExtractionError, ResumeGenerationError, extract_job_context, generate_field_answer as llm_generate_field_answer
-from app.pdf_generator import PDF_MIME_TYPE, PdfGenerationError, render_resume_pdf
+from app.pdf_generator import PDF_MIME_TYPE, PdfGenerationError, render_cover_letter_pdf, render_resume_pdf
 from app.resume_generator import create_tailored_resume
 from app.schemas import (
     AdminJobDetail, AdminJobListResponse, AdminJobSessionItem, AdminJobStatus, AdminStats, ApiError, ApiErrorBody, ArtifactDetail, ArtifactResponse, ArtifactSummary, BaseResumeResponse,
-    BaseResumeUpload, ExtractResumeTextResponse, FieldAnswerRequest, FieldAnswerResponse,
+    BaseResumeUpload, CoverLetter, ExtractResumeTextResponse, FieldAnswerRequest, FieldAnswerResponse,
     GenerateResumeRequest, GenerateResumeResponse, GenerationNotes, JobContext,
     JobPage, JobSessionDetail, JobSessionSummary, LegacyTailoredResume, PageMatchRequest, PageMatchResponse,
     ProviderConfigInput, ProviderModelUpdateInput, ProviderModelsRequest, ProviderPublicConfig, ProviderSettingsResponse, ProviderTestRequest, ProviderTestResponse, RelatedLink, ResumeNotes, ScanRequest, SetDefaultLlmRequest, SetTaskLlmRequest, TailoredResume, TaskLlmSetting,
@@ -224,6 +224,58 @@ async def build_resume(profile: UserProfileModel, session: JobSessionModel, db: 
     session.llm_provider_used = session.resume_generation_provider = provider_name
     session.llm_model_used = session.resume_generation_model = model
     return resume
+
+
+async def build_cover_letter(profile: UserProfileModel, session: JobSessionModel, db: Session) -> CoverLetter:
+    context = JobContext.model_validate(session.job_context_json)
+    role = context.position_title or "this position"
+    company = context.company_name or "your organization"
+    today = datetime.now()
+    today_str = f"{today.day} {today:%B %Y}"
+    provider_name, model, api_key = resolve_task_llm(db, "resume")
+    prompt = render_prompt(
+        provider_name,
+        "cover_letter",
+        cover_letter_schema=CoverLetter.model_json_schema(),
+        role=role,
+        company=company,
+        today=today_str,
+        job_context_json=context.model_dump_json(by_alias=True),
+        base_resume=profile.base_resume_text,
+    )
+    try:
+        raw = await get_llm_provider(provider_name).generate_json(api_key, model, prompt.system, prompt.user, CoverLetter.model_json_schema(), 2400)
+        letter = CoverLetter.model_validate(raw)
+    except Exception as exc:
+        raise ResumeGenerationError(f"{provider_name} could not generate a valid structured cover letter with model {model}: {str(exc)[:300]}") from exc
+    if not letter.contact_info:
+        letter.contact_info = extract_contact_info(profile.base_resume_text)
+    if not letter.dateline:
+        letter.dateline = today_str
+    session.llm_provider_used = session.cover_letter_generation_provider = provider_name
+    session.llm_model_used = session.cover_letter_generation_model = model
+    return letter
+
+
+def cover_letter_plain_text(letter: CoverLetter) -> str:
+    """Flat-text rendering of the letter, stored in content_json["body"] so the
+    sidepanel preview and Copy button keep working (they read contentJson.body)."""
+    blocks: list[str] = []
+    if letter.dateline:
+        blocks.append(letter.dateline)
+    if letter.greeting:
+        blocks.append(letter.greeting)
+    blocks.append(letter.opening)
+    blocks.append(letter.profile_intro)
+    if letter.achievements:
+        blocks.append("\n".join(f"• {item.lead} {item.impact}" for item in letter.achievements))
+    if letter.problems:
+        blocks.append(letter.problems)
+    if letter.closing:
+        blocks.append(letter.closing)
+    if letter.language_closing:
+        blocks.append(letter.language_closing)
+    return "\n\n".join(block for block in blocks if block).strip()
 
 
 @app.get("/health")
@@ -479,6 +531,14 @@ async def scan_job(payload: ScanRequest, db: Session = Depends(get_db)) -> JobSe
     except Exception as exc:
         context = extract_context_fallback(snapshot)
         context.warnings.append(f"LLM extraction unavailable: {str(exc)[:240]}")
+    # The company name is often only in the page header/JSON-LD, not the job body,
+    # so the model may return null. Backfill from the extension's own detections.
+    if not (context.company_name or "").strip() and (snapshot.detected_company or "").strip():
+        context.company_name = snapshot.detected_company.strip()
+    if not (context.position_title or "").strip() and (snapshot.detected_job_title or "").strip():
+        context.position_title = snapshot.detected_job_title.strip()
+    if not (context.location or "").strip() and (snapshot.detected_location or "").strip():
+        context.location = snapshot.detected_location.strip()
     session = db.scalar(select(JobSessionModel).where(JobSessionModel.canonical_job_key == key))
     snapshot_json = snapshot.model_dump(by_alias=True, mode="json")
     if session is None:
@@ -592,7 +652,7 @@ async def generate_session_resume(job_session_id: str, db: Session = Depends(get
         job_session_id=session.id,
         artifact_type="resume",
         title=f"Resume — {context.position_title or 'tailored'}",
-        file_name=f"{safe_filename(context.company_name, context.position_title, 'resume', fallback='tailored-resume')}.pdf",
+        file_name=f"{safe_filename('cv', resume.candidate_name, context.company_name, context.position_title, fallback='tailored-resume')}.pdf",
         mime_type=PDF_MIME_TYPE,
         base64_file=base64.b64encode(pdf_bytes).decode("ascii"),
         content_json=resume.model_dump(by_alias=True, mode="json"),
@@ -614,27 +674,39 @@ async def generate_cover_letter(job_session_id: str, db: Session = Depends(get_d
         raise fail(404, "JOB_SESSION_NOT_FOUND", "Job session was not found.")
     if profile is None or not profile.base_resume_text:
         raise fail(400, "NO_BASE_RESUME", "Base resume is missing.")
+    try:
+        letter = await build_cover_letter(profile, session, db)
+    except ResumeGenerationError as exc:
+        raise fail(502, "LLM_GENERATION_FAILED", str(exc)) from exc
+    try:
+        pdf_bytes, _page_count, ats_replacements = await render_cover_letter_pdf(letter)
+    except PdfGenerationError as exc:
+        raise fail(502, "PDF_GENERATION_FAILED", str(exc)) from exc
     context = JobContext.model_validate(session.job_context_json)
-    role = context.position_title or "this position"
-    company = context.company_name or "your organization"
-    provider_name, model, api_key = resolve_task_llm(db, "resume")
-    prompt = render_prompt(
-        provider_name,
-        "cover_letter",
-        role=role,
-        company=company,
-        job_context_json=context.model_dump_json(by_alias=True),
-        base_resume=profile.base_resume_text,
+    role = context.position_title or letter.role_title or "this position"
+    company = context.company_name or letter.company or "your organization"
+    warnings = ["Review this factual draft before use."]
+    total_ats_replacements = sum(ats_replacements.values())
+    if total_ats_replacements:
+        warnings.append(f"ATS normalization adjusted {total_ats_replacements} character(s) to plain-ASCII equivalents.")
+    content_json = letter.model_dump(by_alias=True, mode="json")
+    content_json["body"] = cover_letter_plain_text(letter)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="cover_letter",
+        title=f"Cover letter — {role}",
+        file_name=f"{safe_filename('cover-letter', letter.candidate_name, company, role, fallback='cover-letter')}.pdf",
+        mime_type=PDF_MIME_TYPE,
+        base64_file=base64.b64encode(pdf_bytes).decode("ascii"),
+        content_json=content_json,
+        llm_provider=session.cover_letter_generation_provider,
+        llm_model=session.cover_letter_generation_model,
+        prompt_version="cover-letter-v3",
     )
-    body = await get_llm_provider(provider_name).generate_text(api_key, model, prompt.system, prompt.user, 1800)
-    session.llm_provider_used = session.cover_letter_generation_provider = provider_name
-    session.llm_model_used = session.cover_letter_generation_model = model
-    content = create_docx_text(f"Cover Letter — {role}", body)
-    artifact = GeneratedArtifactModel(job_session_id=session.id, artifact_type="cover_letter", title=f"Cover letter — {role}", file_name=f"{safe_filename(company, role, 'cover-letter', fallback='cover-letter')}.docx", mime_type=DOCX_MIME_TYPE, base64_file=base64.b64encode(content).decode("ascii"), content_json={"body": body}, llm_provider=provider_name, llm_model=model, prompt_version="cover-letter-v2")
     db.add(artifact)
     db.commit()
     db.refresh(artifact)
-    return ArtifactResponse(artifactId=artifact.id, fileName=artifact.file_name, mimeType=DOCX_MIME_TYPE, base64=artifact.base64_file, notes=GenerationNotes(warnings=["Review this factual draft before use."]))
+    return ArtifactResponse(artifactId=artifact.id, fileName=artifact.file_name, mimeType=PDF_MIME_TYPE, base64=artifact.base64_file, notes=GenerationNotes(warnings=warnings))
 
 
 @app.post("/api/job-sessions/{job_session_id}/generate-field-answer", response_model=FieldAnswerResponse)

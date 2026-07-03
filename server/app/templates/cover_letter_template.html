@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ letter.candidate_name }} — Cover Letter</title>
+<style>
+  /* Modeled on career-ops's cover-letter-template.html, adapted for WeasyPrint.
+     Uses the same static system sans stack as cv_template.html (Helvetica is not
+     reliably available to WeasyPrint) so PDF text stays ATS-parseable. */
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    /* Disable fi/fl/ffi ligatures so PDF text extractors (what ATS reads) do not
+       decode "verification" back into the U+FB01 glyph and miss the keyword. */
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0;
+  }
+
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    font-family: 'Liberation Sans', 'Helvetica Neue', Arial, 'DejaVu Sans', sans-serif;
+    font-size: 10pt;
+    line-height: 1.4;
+    color: #1a1a1a;
+    background: #ffffff;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0;
+  }
+
+  /* Physical page size and margins live here; WeasyPrint reads them from @page. */
+  @page {
+    size: {{ page_size }};
+    margin: 0.6in;
+  }
+
+  .name {
+    font-weight: 700;
+    font-size: 14pt;
+    margin-bottom: 3pt;
+  }
+
+  .contact, .credentials {
+    font-size: 9pt;
+    color: #666666;
+    line-height: 1.3;
+    margin-bottom: 2pt;
+  }
+
+  .contact a, .credentials a {
+    color: #1a56a0;
+    text-decoration: none;
+  }
+
+  .divider {
+    border: none;
+    border-top: 0.5pt solid #cccccc;
+    margin: 6pt 0 8pt;
+  }
+
+  .role-title {
+    font-weight: 700;
+    font-size: 11pt;
+    margin-top: 10pt;
+    margin-bottom: 2pt;
+  }
+
+  .dateline {
+    font-size: 9pt;
+    color: #666666;
+    margin-bottom: 12pt;
+  }
+
+  .greeting {
+    margin-bottom: 8pt;
+  }
+
+  p {
+    margin-bottom: 8pt;
+  }
+
+  .achievements {
+    list-style: none;
+    margin-bottom: 4pt;
+  }
+
+  .achievements li {
+    margin-bottom: 5pt;
+    padding-left: 14pt;
+    position: relative;
+  }
+
+  .achievements li::before {
+    content: "\2022";
+    position: absolute;
+    left: 0;
+  }
+
+  .language-closing {
+    font-style: italic;
+    margin-top: 4pt;
+    margin-bottom: 8pt;
+  }
+</style>
+</head>
+<body>
+  <div class="name">{{ letter.candidate_name }}</div>
+  {% if letter.contact_info %}<div class="contact">{{ letter.contact_info }}</div>{% endif %}
+  {% if letter.credentials %}<div class="credentials">{{ letter.credentials | join(" | ") }}</div>{% endif %}
+  <hr class="divider">
+
+  <div class="role-title">Cover Letter: {{ letter.role_title }}{% if letter.company %} at {{ letter.company }}{% endif %}</div>
+  {% if letter.dateline %}<div class="dateline">{{ letter.dateline }}</div>{% endif %}
+
+  {% if letter.greeting %}<div class="greeting">{{ letter.greeting }}</div>{% endif %}
+  <p>{{ letter.opening }}</p>
+  <p>{{ letter.profile_intro }}</p>
+
+  {% if letter.achievements %}
+  <ul class="achievements">
+    {% for item in letter.achievements %}
+    <li><strong>{{ item.lead }}</strong> {{ item.impact }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if letter.problems %}<p>{{ letter.problems }}</p>{% endif %}
+  {% if letter.closing %}<p>{{ letter.closing }}</p>{% endif %}
+  {% if letter.language_closing %}<div class="language-closing">{{ letter.language_closing }}</div>{% endif %}
+</body>
+</html>
