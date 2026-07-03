@@ -316,7 +316,28 @@ class ResumeExperienceItem(ApiModel):
     company: str
     title: str
     dates: str | None = None
+    location: str | None = None
     bullets: list[str]
+
+
+class ResumeProjectItem(ApiModel):
+    title: str
+    badge: str | None = None
+    description: str
+    tech: str | None = None
+
+
+class ResumeEducationItem(ApiModel):
+    institution: str
+    degree: str
+    year: str | None = None
+    description: str | None = None
+
+
+class ResumeCertificationItem(ApiModel):
+    title: str
+    org: str
+    year: str | None = None
 
 
 class ResumeNotes(ApiModel):
@@ -327,6 +348,26 @@ class ResumeNotes(ApiModel):
 
 
 class TailoredResume(ApiModel):
+    candidate_name: str = Field(alias="candidateName")
+    contact_info: str | None = Field(default=None, alias="contactInfo")
+    headline: str
+    summary: str
+    competencies: list[str] = Field(default_factory=list)
+    skills: list[str]
+    experience: list[ResumeExperienceItem]
+    projects: list[ResumeProjectItem] = Field(default_factory=list)
+    education: list[ResumeEducationItem] = Field(default_factory=list)
+    certifications: list[ResumeCertificationItem] = Field(default_factory=list)
+    language: str = "en"
+    page_format: Literal["letter", "a4"] = Field(default="a4", alias="pageFormat")
+    notes: ResumeNotes = Field(default_factory=ResumeNotes)
+
+
+# Frozen copy of the pre-PDF-port TailoredResume shape, used exclusively by the
+# legacy /api/generate-resume endpoint (openai_client.py, resume_generator.py,
+# document_generator.py's DOCX renderer) so that endpoint keeps working
+# unmodified while TailoredResume evolves for the new HTML/PDF flow.
+class LegacyTailoredResume(ApiModel):
     candidate_name: str = Field(alias="candidateName")
     contact_info: str | None = Field(default=None, alias="contactInfo")
     headline: str

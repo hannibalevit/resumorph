@@ -338,7 +338,7 @@ export function App() {
     try {
       const artifact: ArtifactDetail = await api.artifact(artifactId);
       if (!artifact.base64File) throw new Error("This saved artifact does not include a downloadable file.");
-      downloadBase64(artifact.base64File, artifact.mimeType, artifact.fileName || "resume-tailor-artifact.docx");
+      downloadBase64(artifact.base64File, artifact.mimeType, artifact.fileName || "resume-tailor-artifact");
       setStatus("Saved file is ready for download.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not download saved file.");
