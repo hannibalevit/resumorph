@@ -6,7 +6,10 @@ type SiteResult = Partial<ExtractedJobPage>;
 export function firstText(selectors: string[]): string | undefined {
   for (const selector of selectors) {
     const element = document.querySelector(selector);
-    const imageAlt = element instanceof HTMLImageElement ? element.alt.trim() : "";
+    // Company logos commonly carry alt text like "Acme logo" / "Acme Inc. logo".
+    const imageAlt = element instanceof HTMLImageElement
+      ? element.alt.trim().replace(/\s+logo$/i, "").trim()
+      : "";
     const text = element ? imageAlt || getVisibleText(element) || element.textContent?.trim() : "";
     if (text) {
       return text.trim();
