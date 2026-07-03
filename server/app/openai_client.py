@@ -6,7 +6,14 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, OpenAIError
 from app.config import get_settings
 from app.job_service import compose_scan_page_text
 from app.prompt_loader import render_prompt
-from app.schemas import DetectedFormField, FieldAnswerResponse, GenerateResumeRequest, JobContext, LegacyTailoredResume, PageSnapshot
+from app.schemas import (
+    DetectedFormField,
+    FieldAnswerResponse,
+    GenerateResumeRequest,
+    JobContext,
+    LegacyTailoredResume,
+    PageSnapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +32,10 @@ class FieldAnswerGenerationError(Exception):
 
 def extract_contact_info(base_resume: str) -> str | None:
     lines = [re.sub(r"\s+", " ", line).strip() for line in base_resume.splitlines() if line.strip()]
-    contact_pattern = re.compile(r"@|https?://|linkedin\.com|github\.com|\+?\d[\d\s().-]{6,}|remote|relocat|[A-Z][a-z]+,\s*[A-Z]{2}\b", re.I)
+    contact_pattern = re.compile(
+        r"@|https?://|linkedin\.com|github\.com|\+?\d[\d\s().-]{6,}|remote|relocat|[A-Z][a-z]+,\s*[A-Z]{2}\b",
+        re.I,
+    )
     candidates = [line for line in lines[1:8] if contact_pattern.search(line)]
     if candidates:
         return " | ".join(candidates[:3])[:500]
@@ -68,12 +78,18 @@ async def generate_field_answer(
             text_format=FieldAnswerResponse,
         )
     except (APITimeoutError, APIConnectionError) as exc:
-        raise FieldAnswerGenerationError("OpenAI answer generation timed out or could not connect.") from exc
+        raise FieldAnswerGenerationError(
+            "OpenAI answer generation timed out or could not connect."
+        ) from exc
     except OpenAIError as exc:
-        raise FieldAnswerGenerationError("OpenAI could not generate an answer for this field.") from exc
+        raise FieldAnswerGenerationError(
+            "OpenAI could not generate an answer for this field."
+        ) from exc
     except Exception as exc:
         logger.exception("Unexpected field-answer generation failure")
-        raise FieldAnswerGenerationError("Unexpected error while generating the field answer.") from exc
+        raise FieldAnswerGenerationError(
+            "Unexpected error while generating the field answer."
+        ) from exc
     parsed = response.output_parsed
     if not isinstance(parsed, FieldAnswerResponse):
         raise FieldAnswerGenerationError("OpenAI returned an invalid field-answer format.")
@@ -161,14 +177,18 @@ async def generate_tailored_resume(payload: GenerateResumeRequest) -> LegacyTail
             text_format=LegacyTailoredResume,
         )
     except (APITimeoutError, APIConnectionError) as exc:
-        logger.warning("OpenAI request failed due to connectivity or timeout: %s", exc.__class__.__name__)
+        logger.warning(
+            "OpenAI request failed due to connectivity or timeout: %s", exc.__class__.__name__
+        )
         raise ResumeGenerationError("OpenAI request timed out or could not connect.") from exc
     except OpenAIError as exc:
         logger.warning("OpenAI request failed: %s", exc.__class__.__name__)
         raise ResumeGenerationError("OpenAI could not generate the tailored resume.") from exc
     except Exception as exc:
         logger.exception("Unexpected resume generation failure")
-        raise ResumeGenerationError("Unexpected error while generating the tailored resume.") from exc
+        raise ResumeGenerationError(
+            "Unexpected error while generating the tailored resume."
+        ) from exc
 
     parsed = response.output_parsed
     if not isinstance(parsed, LegacyTailoredResume):

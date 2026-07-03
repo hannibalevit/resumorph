@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.306",
     "@types/node": "^22.15.32",
+    "jsdom": "^29.1.1",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "@types/react": "^19.2.17",

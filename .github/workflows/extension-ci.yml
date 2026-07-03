@@ -1,0 +1,79 @@
+name: Extension CI
+
+on:
+  push:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension-ci.yml"
+
+concurrency:
+  group: extension-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast lane: runs directly on the GitHub-hosted runner's own Node install.
+  # Cheapest and quickest signal, so the isolated lane gates on this passing first.
+  test-native:
+    name: Test & build (native runner)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: extension
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Type-check & build
+        run: npm run build
+
+  # Isolated lane: re-runs the same suite inside a clean Node container image,
+  # decoupled from whatever toolchain happens to be preinstalled on the runner.
+  # Depends on test-native so we don't pay for container start-up on code that
+  # already fails the fast check.
+  test-docker:
+    name: Test & build (isolated Docker container)
+    needs: test-native
+    runs-on: ubuntu-latest
+    container:
+      image: node:22-bookworm
+
+    defaults:
+      run:
+        working-directory: extension
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: extension/.npm-cache
+          key: npm-docker-${{ hashFiles('extension/package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci --cache .npm-cache
+
+      - name: Run tests
+        run: npm test
+
+      - name: Type-check & build
+        run: npm run build

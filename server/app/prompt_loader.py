@@ -3,7 +3,6 @@ from functools import lru_cache
 from pathlib import Path
 from string import Template
 
-
 PROMPTS_DIR = Path(__file__).with_name("prompts")
 
 

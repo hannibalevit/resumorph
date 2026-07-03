@@ -1,0 +1,94 @@
+[project]
+name = "resume-tailor-server"
+version = "0.1.0"
+description = "FastAPI backend for the Resume Tailor Chrome extension"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.13",
+    "uvicorn[standard]==0.34.3",
+    "pydantic==2.11.7",
+    "pydantic-settings==2.9.1",
+    "openai==1.91.0",
+    "python-dotenv==1.1.0",
+    "python-docx==1.1.2",
+    "python-multipart==0.0.20",
+    "pypdf==5.6.0",
+    "SQLAlchemy==2.0.41",
+    "cryptography==45.0.5",
+    "google-genai==1.26.0",
+    "anthropic==0.57.1",
+    "weasyprint==66.0",
+    "jinja2==3.1.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.1",
+    "pytest-asyncio==1.0.0",
+    "httpx==0.28.1",
+    "ruff>=0.15.20",
+    "mypy>=2.1.0",
+    "deptry>=0.25.1",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import sorting, UP pyupgrade, B bugbear,
+# C4 comprehensions, SIM simplify.
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI idiom: dependency/param markers are meant to be called in defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Security",
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.deptry]
+known_first_party = ["app"]
+
+[tool.deptry.per_rule_ignores]
+# Runtime deps not imported directly in app code:
+#   uvicorn         — the ASGI server invoked by entrypoint.sh
+#   python-multipart — used by FastAPI (Starlette) to parse form/file uploads
+DEP002 = ["uvicorn", "python-multipart"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
