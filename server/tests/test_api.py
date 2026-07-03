@@ -1,6 +1,6 @@
 from datetime import datetime
 
-import app.main as main
+import app.services.generation as generation
 import pytest
 from app.models import GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel
 from app.schemas import JobContext
@@ -100,9 +100,9 @@ def test_scan_job_uses_mocked_llm_and_upserts_session(
             }
 
     monkeypatch.setattr(
-        main, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
     )
-    monkeypatch.setattr(main, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(generation, "get_llm_provider", lambda provider: StubProvider())
 
     payload = {
         "pageSnapshot": {

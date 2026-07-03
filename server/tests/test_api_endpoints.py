@@ -2,7 +2,7 @@
 
 from io import BytesIO
 
-import app.main as main
+import app.services.generation as generation
 import pytest
 from app.models import (
     GeneratedArtifactModel,
@@ -10,6 +10,8 @@ from app.models import (
     LlmProviderConfigModel,
     UserProfileModel,
 )
+from app.routers import legacy as legacy_router
+from app.routers import settings as settings_router
 from app.schemas import JobContext
 from app.security import encrypt_secret
 from docx import Document
@@ -50,9 +52,9 @@ class StubProvider:
 @pytest.fixture()
 def stub_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        main, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
     )
-    monkeypatch.setattr(main, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(generation, "get_llm_provider", lambda provider: StubProvider())
 
 
 def _seed_profile(db: Session) -> None:
@@ -397,7 +399,7 @@ def test_list_saved_provider_models(client: TestClient, db_session: Session) -> 
 def test_list_provider_models_with_supplied_key(
     client: TestClient, db_session: Session, stub_llm: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(main, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: StubProvider())
     response = client.post(
         "/api/settings/llm-providers/openai/models",
         json={"apiKey": "sk-supplied-123456", "refresh": True},
@@ -410,7 +412,7 @@ def test_test_provider_success(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _seed_provider(db_session)
-    monkeypatch.setattr(main, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: StubProvider())
     response = client.post("/api/settings/llm-providers/openai/test", json={"model": "gpt-test"})
     assert response.status_code == 200
     assert response.json()["status"] == "success"
@@ -427,7 +429,7 @@ def test_test_provider_failure(
         ) -> dict[str, object]:
             raise RuntimeError("bad key")
 
-    monkeypatch.setattr(main, "get_llm_provider", lambda provider: FailingProvider())
+    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: FailingProvider())
     response = client.post("/api/settings/llm-providers/openai/test", json={"model": "gpt-test"})
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
@@ -457,7 +459,7 @@ def test_legacy_generate_resume(client: TestClient, monkeypatch: pytest.MonkeyPa
             experience=[ResumeExperienceItem(company="Acme", title="Eng", bullets=["Work"])],
         )
 
-    monkeypatch.setattr(main, "create_tailored_resume", fake_create)
+    monkeypatch.setattr(legacy_router, "create_tailored_resume", fake_create)
     response = client.post(
         "/api/generate-resume",
         json={
