@@ -14,18 +14,19 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.document_generator import DOCX_MIME_TYPE, create_docx_resume, create_docx_text
 from app.file_parser import extract_resume_text_from_upload
-from app.job_service import canonical_job_key, compose_scan_page_text, extract_context_fallback, local_field_answer, missing_requirements, normalize_url
+from app.job_service import canonical_job_key, compose_scan_page_text, extract_context_fallback, local_field_answer, normalize_url
 from app.models import AppSettingsModel, GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel, LlmProviderConfigModel, UserProfileModel
 from app.prompt_loader import render_prompt
 from app.security import SecretEncryptionError, decrypt_secret, encrypt_secret, mask_secret
 from app.llm.factory import get_llm_provider
 from app.openai_client import FieldAnswerGenerationError, JobExtractionError, ResumeGenerationError, extract_job_context, generate_field_answer as llm_generate_field_answer
+from app.pdf_generator import PDF_MIME_TYPE, PdfGenerationError, render_resume_pdf
 from app.resume_generator import create_tailored_resume
 from app.schemas import (
     AdminJobDetail, AdminJobListResponse, AdminJobSessionItem, AdminJobStatus, AdminStats, ApiError, ApiErrorBody, ArtifactDetail, ArtifactResponse, ArtifactSummary, BaseResumeResponse,
     BaseResumeUpload, ExtractResumeTextResponse, FieldAnswerRequest, FieldAnswerResponse,
     GenerateResumeRequest, GenerateResumeResponse, GenerationNotes, JobContext,
-    JobPage, JobSessionDetail, JobSessionSummary, PageMatchRequest, PageMatchResponse,
+    JobPage, JobSessionDetail, JobSessionSummary, LegacyTailoredResume, PageMatchRequest, PageMatchResponse,
     ProviderConfigInput, ProviderModelUpdateInput, ProviderModelsRequest, ProviderPublicConfig, ProviderSettingsResponse, ProviderTestRequest, ProviderTestResponse, RelatedLink, ResumeNotes, ScanRequest, SetDefaultLlmRequest, SetTaskLlmRequest, TailoredResume, TaskLlmSetting,
 )
 from app.validation import validate_generation_request
@@ -199,24 +200,6 @@ def preserve_resume_identity(resume: TailoredResume, base_resume: str) -> Tailor
     return resume
 
 
-def local_resume(resume: str, context: JobContext) -> TailoredResume:
-    lines = [line.strip() for line in resume.splitlines() if line.strip()]
-    candidate = lines[0][:80] if lines else "Candidate"
-    headline = context.position_title or (lines[1][:120] if len(lines) > 1 else "Professional")
-    keywords = [keyword for keyword in context.keywords if keyword.lower() in resume.lower()]
-    missing = missing_requirements(resume, context)
-    bullets = lines[2:9] or [re.sub(r"\s+", " ", resume)[:600]]
-    return TailoredResume(
-        candidateName=candidate,
-        contactInfo=extract_contact_info(resume),
-        headline=headline,
-        summary=("Truthful, ATS-friendly draft based on the supplied base resume. " + " ".join(keywords))[:500],
-        skills=keywords,
-        experience=[{"company": "Experience from base resume", "title": headline, "bullets": bullets[:6]}],
-        notes=ResumeNotes(detectedJobTitle=context.position_title, detectedCompany=context.company_name, keywordsUsed=keywords, missingRequirements=missing),
-    )
-
-
 def safe_filename(*parts: str | None, fallback: str) -> str:
     stem = "-".join(part for part in parts if part).lower()
     stem = re.sub(r"[^a-z0-9а-яё]+", "-", stem, flags=re.I).strip("-")
@@ -234,7 +217,7 @@ async def build_resume(profile: UserProfileModel, session: JobSessionModel, db: 
         base_resume=profile.base_resume_text,
     )
     try:
-        raw = await get_llm_provider(provider_name).generate_json(api_key, model, prompt.system, prompt.user, TailoredResume.model_json_schema(), 3500)
+        raw = await get_llm_provider(provider_name).generate_json(api_key, model, prompt.system, prompt.user, TailoredResume.model_json_schema(), 4800)
         resume = preserve_resume_identity(TailoredResume.model_validate(raw), profile.base_resume_text)
     except Exception as exc:
         raise ResumeGenerationError(f"{provider_name} could not generate a valid structured resume with model {model}: {str(exc)[:300]}") from exc
@@ -596,24 +579,31 @@ async def generate_session_resume(job_session_id: str, db: Session = Depends(get
         resume = await build_resume(profile, session, db)
     except ResumeGenerationError as exc:
         raise fail(502, "LLM_GENERATION_FAILED", str(exc)) from exc
-    content = create_docx_resume(resume)
+    try:
+        pdf_bytes, _page_count, ats_replacements = await render_resume_pdf(resume)
+    except PdfGenerationError as exc:
+        raise fail(502, "PDF_GENERATION_FAILED", str(exc)) from exc
     context = JobContext.model_validate(session.job_context_json)
+    warnings: list[str] = []
+    total_ats_replacements = sum(ats_replacements.values())
+    if total_ats_replacements:
+        warnings.append(f"ATS normalization adjusted {total_ats_replacements} character(s) to plain-ASCII equivalents.")
     artifact = GeneratedArtifactModel(
         job_session_id=session.id,
         artifact_type="resume",
         title=f"Resume — {context.position_title or 'tailored'}",
-        file_name=f"{safe_filename(context.company_name, context.position_title, 'resume', fallback='tailored-resume')}.docx",
-        mime_type=DOCX_MIME_TYPE,
-        base64_file=base64.b64encode(content).decode("ascii"),
+        file_name=f"{safe_filename(context.company_name, context.position_title, 'resume', fallback='tailored-resume')}.pdf",
+        mime_type=PDF_MIME_TYPE,
+        base64_file=base64.b64encode(pdf_bytes).decode("ascii"),
         content_json=resume.model_dump(by_alias=True, mode="json"),
         llm_provider=session.resume_generation_provider,
         llm_model=session.resume_generation_model,
-        prompt_version="resume-v2",
+        prompt_version="resume-v3",
     )
     db.add(artifact)
     db.commit()
     db.refresh(artifact)
-    return ArtifactResponse(artifactId=artifact.id, fileName=artifact.file_name, mimeType=DOCX_MIME_TYPE, base64=artifact.base64_file, notes=GenerationNotes(keywordsUsed=resume.notes.keywords_used, missingRequirements=resume.notes.missing_requirements, warnings=[]))
+    return ArtifactResponse(artifactId=artifact.id, fileName=artifact.file_name, mimeType=PDF_MIME_TYPE, base64=artifact.base64_file, notes=GenerationNotes(keywordsUsed=resume.notes.keywords_used, missingRequirements=resume.notes.missing_requirements, warnings=warnings))
 
 
 @app.post("/api/job-sessions/{job_session_id}/generate-cover-letter", response_model=ArtifactResponse)

@@ -4,7 +4,7 @@ from docx import Document
 from docx.enum.text import WD_BREAK
 from docx.shared import Pt
 
-from app.schemas import TailoredResume
+from app.schemas import LegacyTailoredResume
 
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -22,7 +22,7 @@ def add_bullets(document: Document, values: list[str]) -> None:
             document.add_paragraph(value.strip(), style="List Bullet")
 
 
-def create_docx_resume(resume: TailoredResume) -> bytes:
+def create_docx_resume(resume: LegacyTailoredResume) -> bytes:
     document = Document()
     styles = document.styles
     styles["Normal"].font.name = "Arial"
