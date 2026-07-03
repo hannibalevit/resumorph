@@ -99,8 +99,8 @@ function salaryToString(value: JsonValue | undefined): string | undefined {
   const amount = valueObject ? asString(valueObject.value) : asString(object.value);
   const min = valueObject ? asString(valueObject.minValue) : undefined;
   const max = valueObject ? asString(valueObject.maxValue) : undefined;
-  const currency = valueObject ? asString(valueObject.currency) : asString(object.currency);
-  const unit = valueObject ? asString(valueObject.unitText) : undefined;
+  const currency = valueObject ? asString(valueObject.currency) ?? asString(object.currency) : asString(object.currency);
+  const unit = valueObject ? asString(valueObject.unitText) ?? asString(object.unitText) : asString(object.unitText);
 
   if (min || max) {
     return cleanWhitespace(`${currency ?? ""} ${min ?? ""}-${max ?? ""} ${unit ?? ""}`);
