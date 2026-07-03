@@ -6,11 +6,6 @@ on:
       - "server/**"
       - "docker-compose.yml"
       - ".github/workflows/server-ci.yml"
-  pull_request:
-    paths:
-      - "server/**"
-      - "docker-compose.yml"
-      - ".github/workflows/server-ci.yml"
 
 concurrency:
   group: server-ci-${{ github.workflow }}-${{ github.ref }}
