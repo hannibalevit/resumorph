@@ -19,9 +19,11 @@ cp .env.example .env            # then set MASTER_ENCRYPTION_KEY (Fernet key) an
 uv run uvicorn app.main:app --reload --port 8000
 curl http://localhost:8000/health
 ```
-Add deps with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (test); both update `uv.lock`. Backend tests live in `server/tests/` (pytest config in root `pytest.ini`); run them with `uv run pytest`. Coverage is on by default via `pytest-cov` (`--cov=app`): each run prints a per-file `term-missing` table and writes an HTML report to `server/htmlcov/` (open `index.html`). The suite fails if total coverage drops below 85% (`--cov-fail-under=85` in `pytest.ini`) — keep it green when adding backend code. Coverage settings live in `[tool.coverage.*]` in `server/pyproject.toml`. There is no extension test runner.
+Add deps with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (test); both update `uv.lock`. Backend tests live in `server/tests/` (pytest config in root `pytest.ini`); run them with `uv run pytest`. Coverage is on by default via `pytest-cov` (`--cov=app`): each run prints a per-file `term-missing` table and writes an HTML report to `server/htmlcov/` (open `index.html`). The suite fails if total coverage drops below 85% (`--cov-fail-under=85` in `pytest.ini`) — keep it green when adding backend code. Coverage settings live in `[tool.coverage.*]` in `server/pyproject.toml`.
 
 Lint/format/type-check the backend with `uv run ruff check .`, `uv run ruff format .`, `uv run mypy`, and `uv run deptry .` (all configured in `server/pyproject.toml`; they must stay green). Ruff owns line length (100) — don't hand-wrap; let `ruff format` do it. When mypy needs a `str`→`Literal` narrowing at a validated boundary use `typing.cast`, and when a runtime-only dependency (e.g. `uvicorn`, `python-multipart`) trips deptry's DEP002, add it to `[tool.deptry.per_rule_ignores]` rather than importing it.
+
+**No CI runs any of this for the backend** — `.github/workflows/extension-ci.yml` only covers `extension/`. Run `ruff check`, `mypy`, `deptry`, and `pytest` locally before considering backend work done; nothing else will catch regressions.
 
 ### Docker (run from repo root)
 ```bash
@@ -41,23 +43,24 @@ npm run dev            # vite dev mode
 ```
 Or from repo root: `make build-extension`. Load `extension/dist` as an unpacked extension via `chrome://extensions`. Reload the extension after every rebuild.
 
-There's no lint script configured; `npm run build` runs `tsc --noEmit` (strict mode, `noUnusedLocals`/`noUnusedParameters` on) before bundling, so type errors and unused symbols fail the build.
+`npm test` runs Vitest (`extension/tests/`, jsdom env) — there is no separate lint script, but `npm run build` runs `tsc --noEmit` (strict mode, `noUnusedLocals`/`noUnusedParameters` on) before bundling, so type errors and unused symbols fail the build too. CI (`.github/workflows/extension-ci.yml`) runs `npm test` then `npm run build` on every push/PR touching `extension/**`.
 
 ## Architecture
 
 ### Backend (`server/app/`)
 
-`main.py` is a single-file FastAPI app holding all routes (no router modules). Key building blocks it composes:
+`main.py` is a thin app factory: it builds the `FastAPI` instance, wires CORS, registers the exception handler (`errors.py`), runs the startup migration via a `lifespan` context manager, and `include_router`s the route modules under `routers/`. Routes are split by resource into `routers/{health,settings,profile,job_sessions,artifacts,admin,legacy}.py` — add new endpoints to the matching router (or a new one wired into `main.py`) rather than back into `main.py`. Key building blocks the routers compose:
 
 - **`models.py`** — SQLAlchemy models: `UserProfileModel` (single row, id `"local-user"`, holds the base resume text), `JobSessionModel` (one per canonical job posting), `GeneratedArtifactModel` (resumes/cover letters/field answers produced for a session), `LlmProviderConfigModel` (per-provider encrypted API key + settings), `AppSettingsModel` (single row, id `"local-settings"`, default + per-task provider/model), `JobRelatedLinkModel`.
-- **`app.on_event("startup")`** runs a hand-rolled additive migration: it diffs each table's current columns against a hardcoded dict and runs `ALTER TABLE ADD COLUMN` for anything missing. There is no Alembic — if you add a column to a model, also add it to the `migrations` dict in `main.py` or existing SQLite DBs won't pick it up.
+- **`db_migrations.py`** runs a hand-rolled additive migration from the `lifespan` startup hook in `main.py`: it diffs each table's current columns against the hardcoded `MIGRATIONS` dict and runs `ALTER TABLE ADD COLUMN` for anything missing. There is no Alembic — if you add a column to a model, also add it to `MIGRATIONS` in `db_migrations.py` or existing SQLite DBs won't pick it up.
 - **LLM provider abstraction** (`llm/`): `LlmProvider` ABC (`base.py`) with `OpenAiProvider`, `GeminiProvider`, `ClaudeProvider` implementations, selected via `llm/factory.py::get_llm_provider(name)`. Every provider implements `test_connection`, `list_models`, `generate_json` (schema-constrained), `generate_text`.
-- **Per-task LLM routing**: each generation task (`scan`, `resume`, `field_answer`) can have its own provider/model override stored on `AppSettingsModel`, falling back to the global default provider. `resolve_task_llm(db, task)` / `resolve_default_llm(db)` in `main.py` implement this fallback chain — use these rather than reading `AppSettingsModel` fields directly.
+- **Per-task LLM routing**: each generation task (`scan`, `resume`, `field_answer`) can have its own provider/model override stored on `AppSettingsModel`, falling back to the global default provider. `resolve_task_llm(db, task)` / `resolve_default_llm(db)` in `services/llm_settings.py` implement this fallback chain — use these rather than reading `AppSettingsModel` fields directly.
+- **Generation services** (`services/generation.py`) — all LLM-invoking orchestration (`run_job_scan`, `build_resume`, `build_cover_letter`, `generate_field_answer_content`) lives here; it is the single module referencing `get_llm_provider` + `resolve_task_llm` on the generation path (so tests stub the LLM by patching those two names on this module). Pure model→schema mappers live in `serializers.py`; pure string helpers in `text_utils.py`.
 - **Prompts** (`prompts/<provider>/<task>.{system,user}.md`) are plain `string.Template` files, one set per provider per task (`job_scan`, `tailored_resume`, `cover_letter`, `field_answer`, plus an `openai/legacy_tailored_resume`). `prompt_loader.py::render_prompt(provider, task, **values)` loads and substitutes them. When adding a new task or provider, you must add a matching `.system.md`/`.user.md` pair for all three providers or `render_prompt` raises `FileNotFoundError`.
 - **Secrets**: provider API keys are Fernet-encrypted at rest (`security.py`) using `MASTER_ENCRYPTION_KEY`; only a masked preview (`mask_secret`) ever round-trips to the client.
 - **Job identity**: `job_service.py::canonical_job_key` / `normalize_url` dedupe job postings so re-scanning the same posting updates the existing `JobSessionModel` instead of creating duplicates. `match_current_page` lets the extension associate an application-form page (different URL) with an already-scanned job session by normalized URL or title containment.
-- Errors are raised via the `fail(status_code, code, message, **details)` helper, producing a consistent `{"error": {"code", "message", "details"}}` body (see `http_exception_handler`).
-- A legacy non-session endpoint `POST /api/generate-resume` (`validation.py` + `resume_generator.py` + `openai_client.py`) still exists alongside the newer session-based `/api/job-sessions/*` flow — don't assume it's dead code.
+- Errors are raised via the `fail(status_code, code, message, **details)` helper in `errors.py`, producing a consistent `{"error": {"code", "message", "details"}}` body (see `http_exception_handler`, registered in `main.py`).
+- A legacy non-session endpoint `POST /api/generate-resume` (`routers/legacy.py` + `validation.py` + `resume_generator.py` + `openai_client.py`) still exists alongside the newer session-based `/api/job-sessions/*` flow — don't assume it's dead code.
 
 ### Extension (`extension/src/`)
 
@@ -75,3 +78,11 @@ MV3 with three entry points built by `vite.config.ts` (`rollupOptions.input`): `
 - The extension never auto-submits forms or scans pages without an explicit user action (click "Scan this page" / click the inline AI button on a field). Preserve this when touching content scripts.
 - Backend CORS is locked to `chrome-extension://` origins via `allow_origin_regex` plus `ALLOWED_ORIGINS` env var — don't loosen this without understanding the privacy model (see README "How it works").
 - JSON field naming: Pydantic schemas use `by_alias=True` (camelCase on the wire) while Python/SQLAlchemy stay snake_case; TS types in `apiClient.ts`/`sidepanelTypes.ts` mirror the camelCase wire format.
+
+## On context compaction
+
+If this conversation gets summarized, preserve:
+- Which files have been read/edited so far this session and why (don't re-discover by re-reading everything).
+- Any backend preflight results already obtained (ruff/mypy/deptry/pytest pass/fail) — don't silently re-run a clean check as if state is unknown.
+- The specific router/model/prompt/migration files touched, if mid-way through the `add-db-column`, `add-llm-task-or-provider`, or `add-backend-endpoint` skill flows — these are multi-file changes and a half-applied one (e.g. model column added but `MIGRATIONS` dict not updated) is a real bug, not just lost context.
+- Any user correction given this session about scope, style, or approach — these override the defaults above for the rest of the session.

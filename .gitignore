@@ -14,3 +14,6 @@ server/.coverage
 htmlcov/
 server/htmlcov/
 coverage.xml
+
+# Personal Claude Code overrides (machine-specific paths, local permission allowlist)
+.claude/settings.local.json
