@@ -1,0 +1,216 @@
+name: Server CI
+
+on:
+  push:
+    paths:
+      - "server/**"
+      - "docker-compose.yml"
+      - ".github/workflows/server-ci.yml"
+
+concurrency:
+  group: server-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+  # WeasyPrint's runtime deps (imported at collection time by app/pdf_generator.py
+  # and tests/test_file_parser.py), mirrored from server/Dockerfile so every lane
+  # that actually executes the suite has the same shared libs available.
+  WEASYPRINT_APT_PACKAGES: >-
+    libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+    libgdk-pixbuf-2.0-0 libffi8 fonts-liberation fonts-dejavu-core fontconfig
+
+jobs:
+  # Static analysis only — no system libs needed, so this is the cheapest possible
+  # gate. Everything else waits on this so we fail fast on style/type errors before
+  # spending time on apt installs or container spin-up.
+  lint:
+    name: Lint & type-check (native)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "server/uv.lock"
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy
+
+      - name: deptry
+        run: uv run deptry .
+
+  # Isolated test environment: the full pytest suite (with coverage) run inside a
+  # fresh python:3.13-slim container matching server/Dockerfile's base image,
+  # rather than the GitHub-hosted runner's own Ubuntu filesystem. Catches "works
+  # on the runner, breaks in prod" drift — e.g. a missing apt package or a
+  # libc/OpenSSL version the runner happens to have preinstalled but the real
+  # deployment target (Debian slim) doesn't.
+  test-docker:
+    name: Pytest (isolated Docker container)
+    needs: lint
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13-slim
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ${{ env.WEASYPRINT_APT_PACKAGES }} curl ca-certificates
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run pytest
+        run: uv run pytest
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: server/htmlcov/
+          retention-days: 7
+
+      - name: Upload coverage.xml
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-xml
+          path: server/coverage.xml
+          retention-days: 1
+
+  # Regenerates the README coverage badge from main's actual coverage numbers.
+  # Only runs on main (not PRs/branches) so the committed badge always reflects
+  # what's really on main, and only after test-docker has produced coverage.xml.
+  coverage-badge:
+    name: Update coverage badge
+    needs: test-docker
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Download coverage.xml
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage-xml
+          path: server
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Generate badge
+        run: |
+          uvx --from "genbadge[coverage]" genbadge coverage \
+            -i server/coverage.xml -o .github/badges/coverage.svg
+
+      # auto-release.yml's version bump can land on main between our checkout
+      # and this commit — rebase onto whatever is latest so the push below
+      # doesn't get rejected as non-fast-forward.
+      - name: Sync with latest main
+        run: |
+          git fetch origin main
+          git rebase origin/main
+
+      - name: Commit badge if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update coverage badge [skip ci]"
+          file_pattern: ".github/badges/coverage.svg"
+          branch: main
+
+  # Builds and boots the actual image server/Dockerfile produces (what
+  # docker-compose ships to users) and smoke-tests it end to end. This is
+  # deliberately the most expensive lane, so it only starts once test-docker has
+  # proven the code itself works on the same Debian-slim base the image uses.
+  docker-image-smoke-test:
+    name: Build & smoke-test Docker image
+    needs: test-docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          tags: resume-tailor-server:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run container
+        run: |
+          docker run -d --name resume-tailor-server \
+            -p 8000:8000 \
+            -e DATABASE_URL=sqlite:////tmp/resume_tailor.db \
+            -e ALLOWED_ORIGINS="*" \
+            resume-tailor-server:ci
+
+      - name: Wait for health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Server is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server did not become healthy in time"
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs resume-tailor-server
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f resume-tailor-server

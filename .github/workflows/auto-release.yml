@@ -1,0 +1,171 @@
+name: Auto Release
+
+# Every push to main is treated as a release: bump the patch version, tag it,
+# publish a GitHub Release with the built extension attached, and refresh the
+# version badge. There is no manual "bump the version file" step — the tag
+# history is the single source of truth for what's been released, and this
+# workflow is the only thing that writes to the version fields below.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  # Skipped for the bump commit's own push so this doesn't trigger itself.
+  # (In practice GitHub already won't start a new run for a GITHUB_TOKEN push,
+  # but the guard keeps this workflow correct even if triggered manually or via
+  # a PAT.)
+  bump-version:
+    name: Bump version & tag
+    if: "!contains(github.event.head_commit.message, 'chore: bump version')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version and bump files
+        id: bump
+        run: |
+          git fetch --tags --force
+          LAST_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
+          LAST_VERSION=${LAST_TAG#v}
+          LAST_VERSION=${LAST_VERSION:-0.0.0}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
+          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          NEW_TAG="v$NEW_VERSION"
+          echo "Bumping $LAST_VERSION -> $NEW_VERSION"
+
+          jq --arg v "$NEW_VERSION" '.version = $v' extension/manifest.json > extension/manifest.json.tmp
+          mv extension/manifest.json.tmp extension/manifest.json
+
+          sed -i "0,/^version = \".*\"/s//version = \"$NEW_VERSION\"/" server/pyproject.toml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add extension/manifest.json server/pyproject.toml
+          git commit -m "chore: bump version to $NEW_TAG [skip ci]"
+          git tag -a "$NEW_TAG" -m "$NEW_TAG"
+
+          # server-ci.yml's coverage-badge job can push its own commit to main
+          # around the same time — retry with a rebase if we lose the race.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::Could not push version bump to main after 3 attempts"
+              exit 1
+            fi
+            echo "Push rejected, rebasing onto latest main (attempt $attempt)"
+            git fetch origin main
+            git rebase origin/main
+          done
+          git push origin "$NEW_TAG"
+
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+  build-extension:
+    name: Build extension artifact
+    needs: bump-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.bump-version.outputs.tag }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: extension
+        run: npm ci
+
+      - name: Build extension
+        working-directory: extension
+        run: npm run build
+
+      - name: Zip built extension
+        run: |
+          cd extension/dist
+          zip -r "../../resume-tailor-extension-${{ needs.bump-version.outputs.tag }}.zip" .
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: resume-tailor-extension-${{ needs.bump-version.outputs.tag }}.zip
+          retention-days: 1
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [bump-version, build-extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.bump-version.outputs.tag }}
+          generate_release_notes: true
+          files: resume-tailor-extension-${{ needs.bump-version.outputs.tag }}.zip
+
+  # Self-contained badge (a plain file in the repo, not a live external image)
+  # so it renders the same way for public and private repos alike, matching
+  # the coverage badge in server-ci.yml.
+  update-version-badge:
+    name: Update version badge
+    needs: [bump-version, publish-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Generate badge
+        run: |
+          curl -sfL "https://img.shields.io/badge/release-${{ needs.bump-version.outputs.tag }}-blue.svg" \
+            -o .github/badges/version.svg
+
+      # server-ci.yml's coverage-badge job can push its own commit to main
+      # while this workflow is still running — rebase before committing so
+      # the push below doesn't get rejected as non-fast-forward.
+      - name: Sync with latest main
+        run: |
+          git fetch origin main
+          git rebase origin/main
+
+      - name: Commit badge if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update version badge to ${{ needs.bump-version.outputs.tag }} [skip ci]"
+          file_pattern: ".github/badges/version.svg"
+          branch: main

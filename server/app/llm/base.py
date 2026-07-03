@@ -1,5 +1,5 @@
-from abc import ABC, abstractmethod
 import json
+from abc import ABC, abstractmethod
 from typing import Any
 
 
@@ -33,7 +33,17 @@ class LlmProvider(ABC):
     async def list_models(self, api_key: str) -> list[str]: ...
 
     @abstractmethod
-    async def generate_json(self, api_key: str, model: str, system_prompt: str, user_prompt: str, response_schema: dict[str, Any] | None = None, max_tokens: int = 2000) -> dict[str, Any]: ...
+    async def generate_json(
+        self,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
+        max_tokens: int = 2000,
+    ) -> dict[str, Any]: ...
 
     @abstractmethod
-    async def generate_text(self, api_key: str, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> str: ...
+    async def generate_text(
+        self, api_key: str, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000
+    ) -> str: ...

@@ -1,5 +1,8 @@
 # 📄 Resume Tailor
 
+[![Release](.github/badges/version.svg)](https://github.com/hannibalevit/resume-tailor/releases)
+[![Backend coverage](.github/badges/coverage.svg)](.github/workflows/server-ci.yml)
+
 > A Chrome Side Panel extension that tailors your resume to any job posting — privately, locally, on your machine.
 
 Paste your base resume once. Open any job page, click **Scan this page**, and get a tailored `.docx` resume or cover letter in seconds. All data stays on your machine; only the LLM API call leaves it.
@@ -176,7 +179,8 @@ resume-tailor-extension/
 │   │   └── ...
 │   ├── Dockerfile
 │   ├── entrypoint.sh       ← auto-generates encryption key on first run
-│   └── requirements.txt
+│   ├── pyproject.toml      ← dependencies (managed with uv)
+│   └── uv.lock
 ├── docker-compose.yml
 ├── Makefile
 └── README.md

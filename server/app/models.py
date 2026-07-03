@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, JSON, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -53,7 +53,9 @@ class JobSessionModel(Base):
     artifacts: Mapped[list["GeneratedArtifactModel"]] = relationship(
         back_populates="job_session", cascade="all, delete-orphan"
     )
-    related_links: Mapped[list["JobRelatedLinkModel"]] = relationship(back_populates="job_session", cascade="all, delete-orphan")
+    related_links: Mapped[list["JobRelatedLinkModel"]] = relationship(
+        back_populates="job_session", cascade="all, delete-orphan"
+    )
 
 
 class GeneratedArtifactModel(Base):
