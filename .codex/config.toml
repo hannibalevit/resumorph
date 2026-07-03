@@ -1,0 +1,7 @@
+# Project-local Codex configuration.
+#
+# No active project-specific MCP servers are configured here. Keep this file
+# minimal and avoid adding unverified or unsupported keys.
+#
+# If a future Codex setup needs MCP integration, add only entries whose command
+# and arguments are verified from committed project files or official tool docs.

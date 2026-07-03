@@ -1,14 +1,22 @@
 name: Auto Release
 
-# Every push to main is treated as a release: bump the patch version, tag it,
+# Every push to main is treated as a release: bump the version, tag it,
 # publish a GitHub Release with the built extension attached, and refresh the
 # version badge. There is no manual "bump the version file" step — the tag
 # history is the single source of truth for what's been released, and this
 # workflow is the only thing that writes to the version fields below.
+# A push always bumps patch; run this workflow manually (workflow_dispatch)
+# and pick bump_type to cut a minor or major release instead.
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version part to bump"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
   contents: read
@@ -24,7 +32,7 @@ jobs:
   # a PAT.)
   bump-version:
     name: Bump version & tag
-    if: "!contains(github.event.head_commit.message, 'chore: bump version')"
+    if: "github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,15 +47,22 @@ jobs:
 
       - name: Compute next version and bump files
         id: bump
+        env:
+          BUMP_TYPE: ${{ inputs.bump_type || 'patch' }}
         run: |
           git fetch --tags --force
           LAST_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
           LAST_VERSION=${LAST_TAG#v}
           LAST_VERSION=${LAST_VERSION:-0.0.0}
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
-          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          case "$BUMP_TYPE" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+            *) echo "::error::Unknown bump_type '$BUMP_TYPE'"; exit 1 ;;
+          esac
           NEW_TAG="v$NEW_VERSION"
-          echo "Bumping $LAST_VERSION -> $NEW_VERSION"
+          echo "Bumping $LAST_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
 
           jq --arg v "$NEW_VERSION" '.version = $v' extension/manifest.json > extension/manifest.json.tmp
           mv extension/manifest.json.tmp extension/manifest.json
