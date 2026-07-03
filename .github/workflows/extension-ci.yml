@@ -1,0 +1,43 @@
+name: Extension CI
+
+on:
+  push:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension-ci.yml"
+  pull_request:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Test and build extension
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: extension
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build extension
+        run: npm run build

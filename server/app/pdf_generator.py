@@ -88,7 +88,9 @@ def validate_section_order(html: str) -> None:
     section order, not the LLM. This is a template-authoring regression
     guard, not an LLM-output guard.
     """
-    titles = [_normalize_section_title(match.group(1)) for match in _SECTION_TITLE_RE.finditer(html)]
+    titles = [
+        _normalize_section_title(match.group(1)) for match in _SECTION_TITLE_RE.finditer(html)
+    ]
     titles = [title for title in titles if title]
     rendered_keys = [_section_key(title) for title in titles]
     rendered_comparable = [key for key in rendered_keys if key in EXPECTED_SECTION_ORDER]
@@ -96,11 +98,12 @@ def validate_section_order(html: str) -> None:
         return
 
     expected_positions = {key: index for index, key in enumerate(EXPECTED_SECTION_ORDER)}
-    for previous, current in zip(rendered_comparable, rendered_comparable[1:]):
+    for previous, current in zip(rendered_comparable, rendered_comparable[1:], strict=False):
         if expected_positions[current] < expected_positions[previous]:
             raise PdfSectionOrderError(
                 f"Resume template section order diverges from the expected order: "
-                f"rendered {' -> '.join(rendered_comparable)}; expected {' -> '.join(EXPECTED_SECTION_ORDER)}"
+                f"rendered {' -> '.join(rendered_comparable)}; "
+                f"expected {' -> '.join(EXPECTED_SECTION_ORDER)}"
             )
 
 

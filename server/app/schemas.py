@@ -218,7 +218,9 @@ class ProviderSettingsResponse(ApiModel):
     providers: list[ProviderPublicConfig]
     default_provider: ProviderName | None = Field(default=None, alias="defaultProvider")
     default_model: str | None = Field(default=None, alias="defaultModel")
-    task_settings: dict[LlmTaskName, TaskLlmSetting] = Field(default_factory=dict, alias="taskSettings")
+    task_settings: dict[LlmTaskName, TaskLlmSetting] = Field(
+        default_factory=dict, alias="taskSettings"
+    )
 
 
 class SetDefaultLlmRequest(ApiModel):

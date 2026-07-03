@@ -5,7 +5,10 @@ from app.llm.openai_provider import OpenAiProvider
 
 
 def get_llm_provider(provider: str) -> LlmProvider:
-    if provider == "openai": return OpenAiProvider()
-    if provider == "gemini": return GeminiProvider()
-    if provider == "claude": return ClaudeProvider()
+    if provider == "openai":
+        return OpenAiProvider()
+    if provider == "gemini":
+        return GeminiProvider()
+    if provider == "claude":
+        return ClaudeProvider()
     raise ValueError(f"Unsupported LLM provider: {provider}")

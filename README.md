@@ -176,7 +176,8 @@ resume-tailor-extension/
 │   │   └── ...
 │   ├── Dockerfile
 │   ├── entrypoint.sh       ← auto-generates encryption key on first run
-│   └── requirements.txt
+│   ├── pyproject.toml      ← dependencies (managed with uv)
+│   └── uv.lock
 ├── docker-compose.yml
 ├── Makefile
 └── README.md

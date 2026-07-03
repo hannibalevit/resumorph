@@ -12,13 +12,16 @@ Two independent projects in one repo:
 
 ## Commands
 
-### Backend (run from `server/`, after `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`)
+### Backend (run from `server/`; dependencies managed with [uv](https://docs.astral.sh/uv/) — `pyproject.toml` + `uv.lock`)
 ```bash
+uv sync --dev                   # create .venv and install runtime + test deps
 cp .env.example .env            # then set MASTER_ENCRYPTION_KEY (Fernet key) and an LLM key
-uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 curl http://localhost:8000/health
 ```
-There is no test suite in this repo currently (no `tests/` directory, no `pytest` config, no extension test runner).
+Add deps with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (test); both update `uv.lock`. Backend tests live in `server/tests/` (pytest config in root `pytest.ini`); run them with `uv run pytest`. Coverage is on by default via `pytest-cov` (`--cov=app`): each run prints a per-file `term-missing` table and writes an HTML report to `server/htmlcov/` (open `index.html`). The suite fails if total coverage drops below 85% (`--cov-fail-under=85` in `pytest.ini`) — keep it green when adding backend code. Coverage settings live in `[tool.coverage.*]` in `server/pyproject.toml`. There is no extension test runner.
+
+Lint/format/type-check the backend with `uv run ruff check .`, `uv run ruff format .`, `uv run mypy`, and `uv run deptry .` (all configured in `server/pyproject.toml`; they must stay green). Ruff owns line length (100) — don't hand-wrap; let `ruff format` do it. When mypy needs a `str`→`Literal` narrowing at a validated boundary use `typing.cast`, and when a runtime-only dependency (e.g. `uvicorn`, `python-multipart`) trips deptry's DEP002, add it to `[tool.deptry.per_rule_ignores]` rather than importing it.
 
 ### Docker (run from repo root)
 ```bash

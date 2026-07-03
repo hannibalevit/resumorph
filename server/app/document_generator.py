@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from docx import Document
+from docx.document import Document as DocumentType
 from docx.enum.text import WD_BREAK
 from docx.shared import Pt
 
@@ -9,14 +10,14 @@ from app.schemas import LegacyTailoredResume
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def add_heading(document: Document, text: str) -> None:
+def add_heading(document: DocumentType, text: str) -> None:
     paragraph = document.add_paragraph()
     run = paragraph.add_run(text.upper())
     run.bold = True
     run.font.size = Pt(11)
 
 
-def add_bullets(document: Document, values: list[str]) -> None:
+def add_bullets(document: DocumentType, values: list[str]) -> None:
     for value in values:
         if value.strip():
             document.add_paragraph(value.strip(), style="List Bullet")
