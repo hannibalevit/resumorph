@@ -152,3 +152,23 @@ export function extractJsonLdJobPosting(): Partial<ExtractedJobPage> | null {
 export function hasJsonLdJobPosting(): boolean {
   return parseJsonLdScripts().length > 0;
 }
+
+/**
+ * Reads the high-signal identity fields (company, title, location) from the first
+ * JSON-LD JobPosting without the ≥300-char description gate that
+ * `extractJsonLdJobPosting` applies. The company name in particular is frequently
+ * present in structured data even when the visible job body never repeats it.
+ */
+export function readJsonLdMeta(): { company?: string; jobTitle?: string; location?: string } {
+  const [job] = parseJsonLdScripts();
+  if (!job) {
+    return {};
+  }
+
+  const organization = asObject(job.hiringOrganization);
+  return {
+    company: asString(organization?.name),
+    jobTitle: asString(job.title),
+    location: locationToString(job.jobLocation),
+  };
+}

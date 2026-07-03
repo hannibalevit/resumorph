@@ -36,19 +36,43 @@ def _clip(text: str, limit: int) -> str:
     return f"{text[:limit].rstrip()}..."
 
 
+def _detected_meta_block(snapshot: PageSnapshot) -> str:
+    """Surface high-signal identity fields the page header/structured data exposes.
+
+    The company name in particular often lives only in a logo, header, or JSON-LD
+    block that never appears in the job-description body, so without this hint the
+    model returns null and the UI shows "Unknown company".
+    """
+    pairs = (
+        ("Company", snapshot.detected_company),
+        ("Job title", snapshot.detected_job_title),
+        ("Location", snapshot.detected_location),
+    )
+    lines = [f"- {label}: {value.strip()}" for label, value in pairs if value and value.strip()]
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return (
+        "Structured metadata detected from the page header/JSON-LD (explicit facts "
+        "from this page — prefer these for the corresponding fields):\n" + body
+    )
+
+
 def compose_scan_page_text(snapshot: PageSnapshot) -> str:
     """Give the model a focused extraction plus full-page context within one budget."""
     selected = (snapshot.selected_text or "").strip()
     primary = selected or (snapshot.primary_job_text or "").strip()
     visible = (snapshot.visible_text or "").strip()
+    meta_block = _detected_meta_block(snapshot)
+    prefix = f"{meta_block}\n\n" if meta_block else ""
 
     if not primary:
-        return _clip(f"Full visible page text:\n{visible}", MAX_SCAN_PROMPT_TEXT)
+        return _clip(f"{prefix}Full visible page text:\n{visible}", MAX_SCAN_PROMPT_TEXT)
 
     source = "selected_text" if selected else (snapshot.primary_job_source or "primary_extraction")
     confidence = snapshot.primary_job_confidence
     confidence_label = f", confidence {confidence:.2f}" if confidence is not None else ""
-    primary_part = _clip(
+    primary_part = prefix + _clip(
         f"Primary extracted job text (source: {source}{confidence_label}):\n{primary}",
         PRIMARY_SCAN_TEXT_BUDGET,
     )

@@ -6,7 +6,7 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, OpenAIError
 from app.config import get_settings
 from app.job_service import compose_scan_page_text
 from app.prompt_loader import render_prompt
-from app.schemas import DetectedFormField, FieldAnswerResponse, GenerateResumeRequest, JobContext, PageSnapshot, TailoredResume
+from app.schemas import DetectedFormField, FieldAnswerResponse, GenerateResumeRequest, JobContext, LegacyTailoredResume, PageSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def build_resume_prompt(payload: GenerateResumeRequest) -> str:
     ).user
 
 
-async def generate_tailored_resume(payload: GenerateResumeRequest) -> TailoredResume:
+async def generate_tailored_resume(payload: GenerateResumeRequest) -> LegacyTailoredResume:
     settings = get_settings()
 
     if not settings.openai_api_key:
@@ -158,7 +158,7 @@ async def generate_tailored_resume(payload: GenerateResumeRequest) -> TailoredRe
                 {"role": "system", "content": prompt.system},
                 {"role": "user", "content": prompt.user},
             ],
-            text_format=TailoredResume,
+            text_format=LegacyTailoredResume,
         )
     except (APITimeoutError, APIConnectionError) as exc:
         logger.warning("OpenAI request failed due to connectivity or timeout: %s", exc.__class__.__name__)
@@ -171,7 +171,7 @@ async def generate_tailored_resume(payload: GenerateResumeRequest) -> TailoredRe
         raise ResumeGenerationError("Unexpected error while generating the tailored resume.") from exc
 
     parsed = response.output_parsed
-    if not isinstance(parsed, TailoredResume):
+    if not isinstance(parsed, LegacyTailoredResume):
         raise ResumeGenerationError("OpenAI returned an invalid resume format.")
     if not parsed.contact_info:
         parsed.contact_info = extract_contact_info(payload.base_resume)
