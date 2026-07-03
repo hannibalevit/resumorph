@@ -150,18 +150,19 @@ jobs:
         with:
           ref: main
 
-      - name: Generate badge
-        run: |
-          curl -sfL "https://img.shields.io/badge/release-${{ needs.bump-version.outputs.tag }}-blue.svg" \
-            -o .github/badges/version.svg
-
       # server-ci.yml's coverage-badge job can push its own commit to main
-      # while this workflow is still running — rebase before committing so
-      # the push below doesn't get rejected as non-fast-forward.
+      # while this workflow is still running — rebase before generating the
+      # badge so the working tree is clean for git rebase and the commit
+      # below doesn't get rejected as non-fast-forward.
       - name: Sync with latest main
         run: |
           git fetch origin main
           git rebase origin/main
+
+      - name: Generate badge
+        run: |
+          curl -sfL "https://img.shields.io/badge/release-${{ needs.bump-version.outputs.tag }}-blue.svg" \
+            -o .github/badges/version.svg
 
       - name: Commit badge if changed
         uses: stefanzweifel/git-auto-commit-action@v5
