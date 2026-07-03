@@ -25,6 +25,9 @@ export type PageSnapshot = {
   primaryJobText?: string;
   primaryJobSource?: string;
   primaryJobConfidence?: number;
+  detectedCompany?: string;
+  detectedJobTitle?: string;
+  detectedLocation?: string;
   extractionWarnings: string[];
   meta: Record<string, string | undefined>;
   jsonLd: unknown[];
