@@ -9,7 +9,7 @@ from app.file_parser import (
 )
 from docx import Document
 from fastapi import HTTPException, UploadFile
-from weasyprint import HTML
+from fpdf import FPDF
 
 LONG_TEXT = (
     "Senior Python engineer with FastAPI, SQLAlchemy, and testing experience "
@@ -27,7 +27,11 @@ def _make_docx_bytes(paragraphs: list[str]) -> bytes:
 
 
 def _make_pdf_bytes(text: str) -> bytes:
-    return HTML(string=f"<html><body><p>{text}</p></body></html>").write_pdf()
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    pdf.multi_cell(0, 10, text)
+    return bytes(pdf.output())
 
 
 def test_normalize_text_collapses_whitespace() -> None:

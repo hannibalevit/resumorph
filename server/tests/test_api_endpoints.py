@@ -57,6 +57,30 @@ def stub_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(generation, "get_llm_provider", lambda provider: StubProvider())
 
 
+class CapturingStubProvider(StubProvider):
+    """Stub provider that also records the rendered user prompt it was called with,
+    so tests can assert on exactly what context reached the (fake) LLM call."""
+
+    def __init__(self, sink: list[str]) -> None:
+        self.sink = sink
+
+    async def generate_json(self, *args: object, **kwargs: object) -> dict[str, object]:
+        self.sink.append(str(args[3]))
+        return dict(STUB_GENERATION)
+
+
+@pytest.fixture()
+def captured_prompts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    sink: list[str] = []
+    monkeypatch.setattr(
+        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+    )
+    monkeypatch.setattr(
+        generation, "get_llm_provider", lambda provider: CapturingStubProvider(sink)
+    )
+    return sink
+
+
 def _seed_profile(db: Session) -> None:
     db.add(
         UserProfileModel(
@@ -140,8 +164,10 @@ def test_generate_session_resume(client: TestClient, db_session: Session, stub_l
 
     assert response.status_code == 200
     body = response.json()
-    assert body["fileName"].endswith(".pdf")
-    assert body["mimeType"] == "application/pdf"
+    assert body["fileName"] == "Ada_Lovelace_Acme_Resume.docx"
+    assert body["mimeType"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
     assert body["base64"]
 
 
@@ -166,7 +192,52 @@ def test_generate_cover_letter(client: TestClient, db_session: Session, stub_llm
     response = client.post(f"/api/job-sessions/{session.id}/generate-cover-letter")
 
     assert response.status_code == 200
-    assert response.json()["fileName"].endswith(".pdf")
+    assert response.json()["fileName"].endswith(".docx")
+
+
+def test_generate_cover_letter_uses_latest_tailored_resume(
+    client: TestClient, db_session: Session, captured_prompts: list[str]
+) -> None:
+    """The cover letter should be grounded in the resume already tailored for this
+    job session, not the original base resume, once one has been generated."""
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+    tailored_resume = {
+        "candidateName": "Ada Lovelace",
+        "headline": "Distinctive Tailored Headline Marker",
+        "summary": "Tailored summary emphasizing this job's requirements.",
+        "skills": ["Python"],
+        "experience": [{"company": "Acme", "title": "Engineer", "bullets": ["Built APIs"]}],
+    }
+    db_session.add(
+        GeneratedArtifactModel(
+            job_session_id=session.id,
+            artifact_type="resume",
+            content_json=tailored_resume,
+        )
+    )
+    db_session.commit()
+
+    response = client.post(f"/api/job-sessions/{session.id}/generate-cover-letter")
+
+    assert response.status_code == 200
+    assert captured_prompts
+    assert "Distinctive Tailored Headline Marker" in captured_prompts[-1]
+
+
+def test_generate_cover_letter_falls_back_to_base_resume(
+    client: TestClient, db_session: Session, captured_prompts: list[str]
+) -> None:
+    """Without a previously generated resume artifact, the cover letter should fall
+    back to the profile's base resume text, same as field-answer generation does."""
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    response = client.post(f"/api/job-sessions/{session.id}/generate-cover-letter")
+
+    assert response.status_code == 200
+    assert captured_prompts
+    assert "Senior Python engineer with backend experience" in captured_prompts[-1]
 
 
 def test_generate_field_answer_via_session(

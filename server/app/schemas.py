@@ -345,11 +345,44 @@ class ResumeCertificationItem(ApiModel):
     year: str | None = None
 
 
+class ResumeLanguageItem(ApiModel):
+    language: str
+    proficiency: str | None = None
+
+
+class ResumeSelfCheck(ApiModel):
+    """Mirrors the tailored_resume prompts' <self_check_output> contract.
+
+    Declared as real fields (rather than left to model_config's default
+    extra="ignore" behavior) so a false boolean or a detected verbatim-reuse
+    phrase is actually visible in the persisted artifact JSON instead of being
+    silently dropped on validation.
+    """
+
+    companies_and_dates_unchanged: bool = Field(default=True, alias="companiesAndDatesUnchanged")
+    contact_info_complete: bool = Field(default=True, alias="contactInfoComplete")
+    no_fabricated_facts: bool = Field(default=True, alias="noFabricatedFacts")
+    no_employment_gap_created: bool = Field(default=True, alias="noEmploymentGapCreated")
+    dates_normalized_mmyyyy: bool = Field(default=True, alias="datesNormalizedMMYYYY")
+    language_and_page_format_set: bool = Field(default=True, alias="languageAndPageFormatSet")
+    no_repeated_phrase_bridges: bool = Field(default=True, alias="noRepeatedPhraseBridges")
+    no_metric_or_concept_fusion: bool = Field(default=True, alias="noMetricOrConceptFusion")
+    banned_word_edits_grammatical: bool = Field(default=True, alias="bannedWordEditsGrammatical")
+    top_keywords_covered: list[str] = Field(default_factory=list, alias="topKeywordsCovered")
+    banned_words_used_from_jd: list[str] = Field(
+        default_factory=list, alias="bannedWordsUsedFromJD"
+    )
+    verbatim_jd_phrases_reused: list[str] = Field(
+        default_factory=list, alias="verbatimJdPhrasesReused"
+    )
+
+
 class ResumeNotes(ApiModel):
     detected_job_title: str | None = Field(default=None, alias="detectedJobTitle")
     detected_company: str | None = Field(default=None, alias="detectedCompany")
     keywords_used: list[str] = Field(default_factory=list, alias="keywordsUsed")
     missing_requirements: list[str] = Field(default_factory=list, alias="missingRequirements")
+    self_check: ResumeSelfCheck = Field(default_factory=ResumeSelfCheck, alias="selfCheck")
 
 
 class TailoredResume(ApiModel):
@@ -359,6 +392,7 @@ class TailoredResume(ApiModel):
     summary: str
     competencies: list[str] = Field(default_factory=list)
     skills: list[str]
+    languages: list[ResumeLanguageItem] = Field(default_factory=list)
     experience: list[ResumeExperienceItem]
     projects: list[ResumeProjectItem] = Field(default_factory=list)
     education: list[ResumeEducationItem] = Field(default_factory=list)
@@ -381,12 +415,15 @@ class CoverLetter(ApiModel):
     role_title: str = Field(alias="roleTitle")
     company: str | None = None
     dateline: str | None = None
-    greeting: str
-    opening: str
-    profile_intro: str = Field(alias="profileIntro")
+    # min_length on these required fields turns an empty/near-empty LLM response into a
+    # loud validation error instead of a silently truncated letter (missing closing/
+    # signature but no visible error) - see docx_generator's cover letter renderer.
+    greeting: str = Field(min_length=3)
+    opening: str = Field(min_length=20)
+    profile_intro: str = Field(alias="profileIntro", min_length=20)
     achievements: list[CoverLetterAchievement] = Field(default_factory=list)
     problems: str | None = None
-    closing: str
+    closing: str = Field(min_length=10)
     language_closing: str | None = Field(default=None, alias="languageClosing")
     page_format: Literal["letter", "a4"] = Field(default="a4", alias="pageFormat")
 
