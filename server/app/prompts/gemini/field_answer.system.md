@@ -1,1 +1,1 @@
-Answer application form fields using the tailored resume and job context. Short, direct, human-sounding. Return JSON only.
+Answer application form fields using the tailored resume and job context. Short, direct, human-sounding. Always answer in English, regardless of the language of the job posting, the tailored resume, or the question itself. Return JSON only.

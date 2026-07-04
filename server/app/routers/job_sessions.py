@@ -6,16 +6,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.docx_generator import (
+    DOCX_MIME_TYPE,
+    DocxGenerationError,
+    render_cover_letter_docx,
+    render_resume_docx,
+)
 from app.errors import fail
 from app.job_service import canonical_job_key, normalize_url
 from app.models import GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel
 from app.openai_client import ResumeGenerationError
-from app.pdf_generator import (
-    PDF_MIME_TYPE,
-    PdfGenerationError,
-    render_cover_letter_pdf,
-    render_resume_pdf,
-)
 from app.schemas import (
     ArtifactResponse,
     FieldAnswerRequest,
@@ -36,7 +36,7 @@ from app.services.generation import (
     generate_field_answer_content,
     run_job_scan,
 )
-from app.text_utils import classify_related_link, safe_filename
+from app.text_utils import classify_related_link, resume_docx_filename, safe_filename
 
 router = APIRouter()
 
@@ -176,9 +176,9 @@ async def generate_session_resume(
     except ResumeGenerationError as exc:
         raise fail(502, "LLM_GENERATION_FAILED", str(exc)) from exc
     try:
-        pdf_bytes, _page_count, ats_replacements = await render_resume_pdf(resume)
-    except PdfGenerationError as exc:
-        raise fail(502, "PDF_GENERATION_FAILED", str(exc)) from exc
+        docx_bytes, ats_replacements = await render_resume_docx(resume)
+    except DocxGenerationError as exc:
+        raise fail(502, "DOCX_GENERATION_FAILED", str(exc)) from exc
     context = JobContext.model_validate(session.job_context_json)
     warnings: list[str] = []
     total_ats_replacements = sum(ats_replacements.values())
@@ -187,22 +187,14 @@ async def generate_session_resume(
             f"ATS normalization adjusted {total_ats_replacements} "
             "character(s) to plain-ASCII equivalents."
         )
-    file_name = f"{
-        safe_filename(
-            'cv',
-            resume.candidate_name,
-            context.company_name,
-            context.position_title,
-            fallback='tailored-resume',
-        )
-    }.pdf"
-    base64_file = base64.b64encode(pdf_bytes).decode("ascii")
+    file_name = resume_docx_filename(resume.candidate_name, context.company_name)
+    base64_file = base64.b64encode(docx_bytes).decode("ascii")
     artifact = GeneratedArtifactModel(
         job_session_id=session.id,
         artifact_type="resume",
         title=f"Resume — {context.position_title or 'tailored'}",
         file_name=file_name,
-        mime_type=PDF_MIME_TYPE,
+        mime_type=DOCX_MIME_TYPE,
         base64_file=base64_file,
         content_json=resume.model_dump(by_alias=True, mode="json"),
         llm_provider=session.resume_generation_provider,
@@ -215,7 +207,7 @@ async def generate_session_resume(
     return ArtifactResponse(
         artifactId=artifact.id,
         fileName=file_name,
-        mimeType=PDF_MIME_TYPE,
+        mimeType=DOCX_MIME_TYPE,
         base64=base64_file,
         notes=GenerationNotes(
             keywordsUsed=resume.notes.keywords_used,
@@ -242,9 +234,9 @@ async def generate_cover_letter(
     except ResumeGenerationError as exc:
         raise fail(502, "LLM_GENERATION_FAILED", str(exc)) from exc
     try:
-        pdf_bytes, _page_count, ats_replacements = await render_cover_letter_pdf(letter)
-    except PdfGenerationError as exc:
-        raise fail(502, "PDF_GENERATION_FAILED", str(exc)) from exc
+        docx_bytes, ats_replacements = await render_cover_letter_docx(letter)
+    except DocxGenerationError as exc:
+        raise fail(502, "DOCX_GENERATION_FAILED", str(exc)) from exc
     context = JobContext.model_validate(session.job_context_json)
     role = context.position_title or letter.role_title or "this position"
     company = context.company_name or letter.company or "your organization"
@@ -265,14 +257,14 @@ async def generate_cover_letter(
             role,
             fallback='cover-letter',
         )
-    }.pdf"
-    base64_file = base64.b64encode(pdf_bytes).decode("ascii")
+    }.docx"
+    base64_file = base64.b64encode(docx_bytes).decode("ascii")
     artifact = GeneratedArtifactModel(
         job_session_id=session.id,
         artifact_type="cover_letter",
         title=f"Cover letter — {role}",
         file_name=file_name,
-        mime_type=PDF_MIME_TYPE,
+        mime_type=DOCX_MIME_TYPE,
         base64_file=base64_file,
         content_json=content_json,
         llm_provider=session.cover_letter_generation_provider,
@@ -285,7 +277,7 @@ async def generate_cover_letter(
     return ArtifactResponse(
         artifactId=artifact.id,
         fileName=file_name,
-        mimeType=PDF_MIME_TYPE,
+        mimeType=DOCX_MIME_TYPE,
         base64=base64_file,
         notes=GenerationNotes(warnings=warnings),
     )
