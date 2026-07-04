@@ -47,6 +47,23 @@ def preserve_resume_identity(resume: TailoredResume, base_resume: str) -> Tailor
     return resume
 
 
+def _latest_resume_text(db: Session, session_id: str, fallback: str) -> str:
+    """Return the most recently generated tailored resume for this job session
+    (serialized as JSON), or ``fallback`` (the base resume) if none exists yet."""
+    artifact = db.scalars(
+        select(GeneratedArtifactModel)
+        .where(
+            GeneratedArtifactModel.job_session_id == session_id,
+            GeneratedArtifactModel.artifact_type == "resume",
+        )
+        .order_by(GeneratedArtifactModel.created_at.desc())
+        .limit(1)
+    ).first()
+    if artifact and artifact.content_json:
+        return TailoredResume.model_validate(artifact.content_json).model_dump_json(by_alias=True)
+    return fallback
+
+
 async def run_job_scan(db: Session, snapshot: PageSnapshot) -> tuple[JobContext, str, str]:
     """Extract a ``JobContext`` from a page snapshot, falling back to a heuristic
     extractor if the LLM call fails. Returns the context plus provider/model used."""
@@ -110,6 +127,7 @@ async def build_cover_letter(
     today = datetime.now()
     today_str = f"{today.day} {today:%B %Y}"
     provider_name, model, api_key = resolve_task_llm(db, "resume")
+    resume_text = _latest_resume_text(db, session.id, profile.base_resume_text)
     prompt = render_prompt(
         provider_name,
         "cover_letter",
@@ -118,7 +136,7 @@ async def build_cover_letter(
         company=company,
         today=today_str,
         job_context_json=context.model_dump_json(by_alias=True),
-        base_resume=profile.base_resume_text,
+        resume=resume_text,
     )
     try:
         raw = await get_llm_provider(provider_name).generate_json(
@@ -176,20 +194,7 @@ async def generate_field_answer_content(
         or payload.field.placeholder
         or "Application question"
     )
-    resume_artifact = db.scalars(
-        select(GeneratedArtifactModel)
-        .where(
-            GeneratedArtifactModel.job_session_id == session.id,
-            GeneratedArtifactModel.artifact_type == "resume",
-        )
-        .order_by(GeneratedArtifactModel.created_at.desc())
-        .limit(1)
-    ).first()
-    resume_text = (
-        TailoredResume.model_validate(resume_artifact.content_json).model_dump_json(by_alias=True)
-        if resume_artifact and resume_artifact.content_json
-        else profile.base_resume_text
-    )
+    resume_text = _latest_resume_text(db, session.id, profile.base_resume_text)
     prompt = render_prompt(
         provider_name,
         "field_answer",

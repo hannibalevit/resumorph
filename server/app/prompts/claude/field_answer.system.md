@@ -16,6 +16,7 @@ Classify the question before answering:
 - Never guess or fabricate: salary, work authorization, availability, legal status, demographics
 - If evidence is missing, return a short editable placeholder with a warning
 - Always set needsUserReview to true
+- Always answer in English, regardless of the language of the job posting, the tailored resume, or the question itself
 </answer_rules>
 
 <human_voice_rules>

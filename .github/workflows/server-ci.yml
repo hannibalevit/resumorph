@@ -16,12 +16,6 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.13"
-  # WeasyPrint's runtime deps (imported at collection time by app/pdf_generator.py
-  # and tests/test_file_parser.py), mirrored from server/Dockerfile so every lane
-  # that actually executes the suite has the same shared libs available.
-  WEASYPRINT_APT_PACKAGES: >-
-    libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
-    libgdk-pixbuf-2.0-0 libffi8 fonts-liberation fonts-dejavu-core fontconfig
 
 jobs:
   # Static analysis only — no system libs needed, so this is the cheapest possible
@@ -87,7 +81,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ${{ env.WEASYPRINT_APT_PACKAGES }} curl ca-certificates
+          apt-get install -y --no-install-recommends curl ca-certificates
 
       - name: Install uv
         run: |
