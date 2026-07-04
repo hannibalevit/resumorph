@@ -136,18 +136,20 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
 
-      - name: Generate badge
-        run: |
-          uvx --from "genbadge[coverage]" genbadge coverage \
-            -i server/coverage.xml -o .github/badges/coverage.svg
-
       # auto-release.yml's version bump can land on main between our checkout
       # and this commit — rebase onto whatever is latest so the push below
-      # doesn't get rejected as non-fast-forward.
+      # doesn't get rejected as non-fast-forward. Must run before the badge is
+      # generated: rebase refuses to run with unstaged changes in the tree,
+      # and generating the badge dirties coverage.svg.
       - name: Sync with latest main
         run: |
           git fetch origin main
           git rebase origin/main
+
+      - name: Generate badge
+        run: |
+          uvx --from "genbadge[coverage]" genbadge coverage \
+            -i server/coverage.xml -o .github/badges/coverage.svg
 
       - name: Commit badge if changed
         uses: stefanzweifel/git-auto-commit-action@v5
