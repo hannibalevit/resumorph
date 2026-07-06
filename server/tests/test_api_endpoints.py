@@ -325,13 +325,32 @@ def test_match_current_page_by_title(client: TestClient, db_session: Session) ->
     response = client.post(
         "/api/job-sessions/match-current-page",
         json={
-            "url": "https://elsewhere.example.com/apply",
+            "url": "https://jobs.example.com/apply",
             "title": "Apply: Backend Engineer role",
         },
     )
     assert response.status_code == 200
     assert response.json()["matched"] is True
     assert response.json()["confidence"] == 0.62
+
+
+def test_match_current_page_by_title_does_not_cross_hostnames(
+    client: TestClient, db_session: Session
+) -> None:
+    # Regression test: an unrelated posting on a different site can share a generic
+    # title fragment (e.g. "Backend Engineer") with an old, already-scanned session.
+    # Title matching must stay scoped to the same hostname or the side panel silently
+    # jumps to the wrong job.
+    _seed_session(db_session)
+    response = client.post(
+        "/api/job-sessions/match-current-page",
+        json={
+            "url": "https://elsewhere.example.com/apply",
+            "title": "Apply: Backend Engineer role",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"matched": False, "jobSessionId": None, "confidence": 0.0}
 
 
 def test_match_current_page_no_match(client: TestClient) -> None:

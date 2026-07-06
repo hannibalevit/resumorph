@@ -15,7 +15,6 @@ class ClaudeProvider(LlmProvider):
         response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=0,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
