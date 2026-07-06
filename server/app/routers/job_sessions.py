@@ -1,5 +1,6 @@
 import base64
 from datetime import datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -149,10 +150,18 @@ async def match_current_page(
     session = db.scalar(select(JobSessionModel).where(JobSessionModel.normalized_url == normalized))
     if session:
         return PageMatchResponse(matched=True, jobSessionId=session.id, confidence=1.0)
-    # A URL can differ between the job page and application page. Keep title matching conservative.
-    if payload.title:
+    # A URL can differ between the job page and its application form (e.g. same ATS,
+    # different path), so title containment is a useful fallback. But it must stay scoped
+    # to the same hostname: unrelated postings on other sites routinely share generic
+    # title fragments (e.g. "Security Consultant"), and matching across hostnames caused
+    # the extension to silently jump to an unrelated, already-closed job session.
+    hostname = urlparse(normalized).netloc
+    if payload.title and hostname:
         candidates = db.scalars(
-            select(JobSessionModel).where(JobSessionModel.position_title.is_not(None))
+            select(JobSessionModel)
+            .where(JobSessionModel.position_title.is_not(None))
+            .where(JobSessionModel.hostname == hostname)
+            .order_by(JobSessionModel.last_used_at.desc())
         ).all()
         lower_title = payload.title.lower()
         for candidate in candidates:
