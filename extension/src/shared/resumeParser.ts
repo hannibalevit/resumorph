@@ -10,7 +10,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 type SupportedResumeExtension = "txt" | "md" | "pdf" | "doc" | "docx";
 
 function normalizeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function getExtension(fileName: string): SupportedResumeExtension | null {
