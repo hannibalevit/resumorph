@@ -1,14 +1,18 @@
 const BASE_RESUME_KEY = "baseResume";
 const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
 const ONBOARDING_COMPLETE_STORAGE_KEY = "onboardingComplete";
+const OPEN_JOB_SESSION_IDS_KEY = "openJobSessionIds";
 export const DEFAULT_API_BASE_URL = "http://localhost:8000";
 export const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
+export const BACKEND_CONNECTED_STORAGE_KEY = "backendConnected";
+export const MAX_OPEN_JOB_TABS = 5;
 
 type ResumeStorageShape = {
   [BASE_RESUME_KEY]?: string;
   [API_BASE_URL_STORAGE_KEY]?: string;
   [ONBOARDING_COMPLETE_STORAGE_KEY]?: boolean;
   [EXTENSION_ENABLED_STORAGE_KEY]?: boolean;
+  [OPEN_JOB_SESSION_IDS_KEY]?: string[];
 };
 
 export async function getBaseResume(): Promise<string | null> {
@@ -56,4 +60,13 @@ export async function isExtensionEnabled(): Promise<boolean> {
 
 export async function saveExtensionEnabled(enabled: boolean): Promise<void> {
   await chrome.storage.local.set({ [EXTENSION_ENABLED_STORAGE_KEY]: enabled });
+}
+
+export async function getOpenJobSessionIds(): Promise<string[]> {
+  const result = await chrome.storage.local.get(OPEN_JOB_SESSION_IDS_KEY) as ResumeStorageShape;
+  return result[OPEN_JOB_SESSION_IDS_KEY] ?? [];
+}
+
+export async function setOpenJobSessionIds(ids: string[]): Promise<void> {
+  await chrome.storage.local.set({ [OPEN_JOB_SESSION_IDS_KEY]: ids });
 }

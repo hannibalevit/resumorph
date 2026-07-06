@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Resume Tailor",
   "description": "Generate a tailored resume from a saved base resume and the active job page.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "action": {
     "default_title": "Resume Tailor",
     "default_icon": {
@@ -31,7 +31,8 @@
     "storage",
     "scripting",
     "tabs",
-    "downloads"
+    "downloads",
+    "alarms"
   ],
   "host_permissions": [
     "http://localhost:8000/*",

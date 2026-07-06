@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
-import { EXTENSION_ENABLED_STORAGE_KEY, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, getOpenJobSessionIds, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
 import { OnboardingView } from "./OnboardingView";
@@ -105,7 +105,8 @@ export function App() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [view, setView] = useState<"jobs" | "history" | "settings">("jobs");
-  const [closedSessionIds, setClosedSessionIds] = useState<Set<string>>(() => new Set());
+  const [openSessionIds, setOpenSessionIds] = useState<string[]>([]);
+  const openSessionIdsLoaded = useRef(false);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [manualTextByJobKey, setManualTextByJobKey] = useState<Record<string, string>>({});
   const [coverLetter, setCoverLetter] = useState<ArtifactDetail | null>(null);
@@ -138,15 +139,23 @@ export function App() {
     const result = await api.sessions(); setSessions(result); return result;
   }, []);
 
-  const selectSession = useCallback(async (id: string) => {
-    const result = await api.session(id); setActiveSession(result);
-    setClosedSessionIds((current) => {
-      const next = new Set(current);
-      next.delete(id);
+  const openSession = useCallback((id: string) => {
+    setOpenSessionIds((current) => {
+      if (current.includes(id)) return current;
+      const next = [...current, id];
+      if (next.length > MAX_OPEN_JOB_TABS) {
+        next.shift();
+        setStatus("Closed the oldest tab to keep 5 open — it's still in History.");
+      }
       return next;
     });
-    void chrome.runtime.sendMessage({ type: "SET_ACTIVE_JOB_SESSION", jobSessionId: id });
   }, []);
+
+  const selectSession = useCallback(async (id: string) => {
+    const result = await api.session(id); setActiveSession(result);
+    openSession(id);
+    void chrome.runtime.sendMessage({ type: "SET_ACTIVE_JOB_SESSION", jobSessionId: id });
+  }, [openSession]);
 
   const matchActiveTab = useCallback(async (tab: ActiveTab) => {
     if (!tab.url || !/^https?:/.test(tab.url)) { setActiveSession(null); return; }
@@ -164,9 +173,11 @@ export function App() {
     try {
       await api.health();
       setBackend("connected");
+      void chrome.runtime.sendMessage({ type: "BACKEND_STATUS_CHANGED", connected: true }).catch(() => undefined);
       await refreshSessions();
     } catch {
       setBackend("disconnected");
+      void chrome.runtime.sendMessage({ type: "BACKEND_STATUS_CHANGED", connected: false }).catch(() => undefined);
       setStatus("Backend is disconnected. Start the local server, then reconnect.");
       if (showProgress) setBusy(null);
       return;
@@ -183,14 +194,19 @@ export function App() {
   useEffect(() => {
     void isOnboardingComplete().then((complete) => setShowOnboarding(!complete)).catch(() => setShowOnboarding(true));
     void isExtensionEnabled().then(setExtensionActive).catch(() => undefined);
+    void getOpenJobSessionIds().then((ids) => { openSessionIdsLoaded.current = true; setOpenSessionIds(ids); }).catch(() => { openSessionIdsLoaded.current = true; });
     void reconnectBackend();
     const listener = (message: { type?: string; tab?: ActiveTab }) => {
       if (message.type === "ACTIVE_TAB_CHANGED" && message.tab) { setActiveTab(message.tab); void matchActiveTab(message.tab); }
     };
     const storageListener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
-      const change = changes[EXTENSION_ENABLED_STORAGE_KEY];
-      if (change) setExtensionActive(change.newValue !== false);
+      const enabledChange = changes[EXTENSION_ENABLED_STORAGE_KEY];
+      if (enabledChange) setExtensionActive(enabledChange.newValue !== false);
+      // Keeps the status dot in sync with the action icon: the service worker's
+      // background health poll can flip this while the sidepanel just sits open.
+      const connectedChange = changes[BACKEND_CONNECTED_STORAGE_KEY];
+      if (connectedChange) setBackend(connectedChange.newValue === false ? "disconnected" : "connected");
     };
     chrome.runtime.onMessage.addListener(listener);
     chrome.storage.onChanged.addListener(storageListener);
@@ -199,6 +215,11 @@ export function App() {
       chrome.storage.onChanged.removeListener(storageListener);
     };
   }, [matchActiveTab, reconnectBackend]);
+
+  useEffect(() => {
+    if (!openSessionIdsLoaded.current) return;
+    void setOpenJobSessionIds(openSessionIds);
+  }, [openSessionIds]);
 
   useEffect(() => {
     const textarea = manualTextareaRef.current;
@@ -241,11 +262,7 @@ export function App() {
       if (response.error) throw new Error(response.error);
       if (!response.snapshot) throw new Error("The page scanner did not return a snapshot. Refresh the page and try again.");
       setStatus("Extracting the job context…"); const session = await api.scan(response.snapshot as Parameters<typeof api.scan>[0]);
-      setClosedSessionIds((current) => {
-        const next = new Set(current);
-        next.delete(session.id);
-        return next;
-      });
+      openSession(session.id);
       await refreshSessions(); setActiveSession(session); void chrome.runtime.sendMessage({ type: "SET_ACTIVE_JOB_SESSION", jobSessionId: session.id });
       setStatus("Job session saved.");
     } catch (error) { setStatus(error instanceof Error ? error.message : "The page could not be scanned."); }
@@ -266,11 +283,7 @@ export function App() {
       const previousManualTextKey = manualTextKey;
       const snapshot = createManualPageSnapshot(text, activeTab, activeSession);
       const session = await api.scan(snapshot);
-      setClosedSessionIds((current) => {
-        const next = new Set(current);
-        next.delete(session.id);
-        return next;
-      });
+      openSession(session.id);
       await refreshSessions();
       setActiveSession(session);
       setManualTextByJobKey((current) => {
@@ -348,7 +361,7 @@ export function App() {
   };
 
   const closeSession = async (id: string) => {
-    setClosedSessionIds((current) => new Set(current).add(id));
+    setOpenSessionIds((current) => current.filter((sessionId) => sessionId !== id));
     if (activeSession?.id === id) {
       setActiveSession(null);
       setStatus("Tab closed. The job and generated files remain in History.");
@@ -358,7 +371,10 @@ export function App() {
   const context = activeSession?.jobContext;
   const snapshot = activeSession?.rawPageSnapshot;
   const artifactCount = useMemo(() => activeSession?.artifacts.length ?? 0, [activeSession]);
-  const visibleSessions = useMemo(() => sessions.filter((session) => !closedSessionIds.has(session.id)), [closedSessionIds, sessions]);
+  const visibleSessions = useMemo(
+    () => openSessionIds.map((id) => sessions.find((session) => session.id === id)).filter((session): session is JobSessionSummary => Boolean(session)),
+    [openSessionIds, sessions],
+  );
   const hasResumeArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "resume"));
   const hasCoverLetterArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "cover_letter"));
   const siteBlocked = isBlockedUrl(activeTab.url);
@@ -376,7 +392,8 @@ export function App() {
   }
 
   return <main className="panel">
-    {view === "settings" ? <SettingsView onResumeSaved={() => { setResumePresent(true); setStatus("Base resume saved."); }} /> : view === "history" ? <HistoryView onDeleted={(id) => { setSessions((current) => current.filter((session) => session.id !== id)); if (activeSession?.id === id) { setActiveSession(null); setCoverLetter(null); void chrome.storage.local.remove("activeJobSessionId"); } }} onCleared={() => { setSessions([]); setActiveSession(null); setClosedSessionIds(new Set()); setCoverLetter(null); setStatus("Job history cleared."); void chrome.storage.local.remove("activeJobSessionId"); }} /> : <>
+    {view === "settings" ? <SettingsView onResumeSaved={() => { setResumePresent(true); setStatus("Base resume saved."); }} /> : view === "history" ? <HistoryView onDeleted={(id) => { setSessions((current) => current.filter((session) => session.id !== id)); setOpenSessionIds((current) => current.filter((sessionId) => sessionId !== id)); if (activeSession?.id === id) { setActiveSession(null); setCoverLetter(null); void chrome.storage.local.remove("activeJobSessionId"); } }} onCleared={() => { setSessions([]); setActiveSession(null); setOpenSessionIds([]); setCoverLetter(null); setStatus("Job history cleared."); void chrome.storage.local.remove("activeJobSessionId"); }} /> : <>
+    <div className="view-heading"><h2>Jobs</h2></div>
     <section className="actions page-actions">
       <button className="primary" onClick={() => void scan()} disabled={actionsDisabled}>{busy === "scan" && <ButtonSpinner />}{busy === "scan" ? "Scanning..." : activeSession ? "Rescan this page" : "Scan this page"}</button>
       <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>
@@ -410,8 +427,8 @@ export function App() {
       <div className="footer-actions">
         <button className={`footer-button ${view === "jobs" ? "active" : ""}`} data-tooltip="Jobs" aria-label="Jobs" title="Jobs" onClick={() => setView("jobs")}>▦</button>
         <button className={`footer-button ${view === "history" ? "active" : ""}`} data-tooltip="History" aria-label="History" title="History" onClick={() => setView((current) => current === "history" ? "jobs" : "history")}>◷</button>
-        <button className="footer-button reconnect-fab" data-tooltip="Reconnect" aria-label="Reconnect to backend" title="Reconnect" disabled={busy !== null} onClick={() => void reconnectBackend(true)}>{busy === "reconnect" ? <ButtonSpinner /> : "↻"}</button>
         <button className={`footer-button settings-fab ${view === "settings" ? "active" : ""}`} data-tooltip="Settings" aria-label="Settings" title="Settings" onClick={() => setView((current) => current === "settings" ? "jobs" : "settings")}>⚙</button>
+        <button className="footer-button reconnect-fab" data-tooltip="Reconnect" aria-label="Reconnect to backend" title="Reconnect" disabled={busy !== null} onClick={() => void reconnectBackend(true)}>{busy === "reconnect" ? <ButtonSpinner /> : "↻"}</button>
         <button className="footer-button power-fab" data-tooltip={extensionActive ? "Disable" : "Enable"} aria-label={extensionActive ? "Disable extension" : "Enable extension"} aria-pressed={extensionActive} title={extensionActive ? "Disable" : "Enable"} onClick={() => void toggleExtension()}>⏻</button>
       </div>
     </footer>
