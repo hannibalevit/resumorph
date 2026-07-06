@@ -291,7 +291,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   };
 
   return <section className="settings-view">
-    <h2>Settings</h2>
+    <div className="view-heading"><h2>Settings</h2></div>
     <nav className="settings-tabs" aria-label="Settings sections">
       <button className={activeTab === "resume" ? "active" : ""} onClick={() => setActiveTab("resume")}>Base resume</button>
       <button className={activeTab === "llm" ? "active" : ""} onClick={() => setActiveTab("llm")}>LLM models</button>
@@ -328,7 +328,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           {providerConfig?.isEnabled && <button className="secondary" onClick={() => void saveModel(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `model-${provider.id}` && <ButtonSpinner />}{busy === `model-${provider.id}` ? "Saving..." : "Save model"}</button>}
           <button className="secondary" onClick={() => void test(provider.id)} disabled={busy !== null}>{busy === `test-${provider.id}` && <ButtonSpinner />}{busy === `test-${provider.id}` ? "Testing..." : "Test connection"}</button>
           {providerConfig?.isEnabled && <button className="secondary" onClick={() => void loadModels(provider.id, undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
-          {providerConfig?.isEnabled && <button className="danger compact" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : "Clear key"}</button>}
+          {providerConfig?.isEnabled && <button className="danger" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : "Clear key"}</button>}
         </div>
       </section>;
       })}

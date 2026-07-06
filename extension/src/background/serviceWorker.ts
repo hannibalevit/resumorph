@@ -1,38 +1,57 @@
-import { EXTENSION_ENABLED_STORAGE_KEY, getApiBaseUrl, isExtensionEnabled } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, getApiBaseUrl, isExtensionEnabled } from "../shared/storage";
 import { isBlockedUrl } from "../shared/blockedSites";
+
+const HEALTH_CHECK_ALARM = "healthCheck";
+type IconVariant = "black" | "white" | "gray" | "red";
 
 // chrome.action.setIcon fetches each path itself; relative paths resolve
 // inconsistently from a module-type service worker and intermittently fail with
 // "Failed to fetch". Resolving to an absolute chrome-extension:// URL avoids that.
-const ACTION_ICON_PATHS = {
-  light: {
-    16: chrome.runtime.getURL("icons/action-black-16.png"),
-    32: chrome.runtime.getURL("icons/action-black-32.png"),
-    48: chrome.runtime.getURL("icons/action-black-48.png"),
-    128: chrome.runtime.getURL("icons/action-black-128.png"),
-  },
-  dark: {
-    16: chrome.runtime.getURL("icons/action-white-16.png"),
-    32: chrome.runtime.getURL("icons/action-white-32.png"),
-    48: chrome.runtime.getURL("icons/action-white-48.png"),
-    128: chrome.runtime.getURL("icons/action-white-128.png"),
-  },
-};
+function iconPaths(variant: IconVariant): Record<16 | 32 | 48 | 128, string> {
+  return {
+    16: chrome.runtime.getURL(`icons/action-${variant}-16.png`),
+    32: chrome.runtime.getURL(`icons/action-${variant}-32.png`),
+    48: chrome.runtime.getURL(`icons/action-${variant}-48.png`),
+    128: chrome.runtime.getURL(`icons/action-${variant}-128.png`),
+  };
+}
+
+// Precedence: an explicitly disabled extension always shows gray, an unreachable
+// backend shows red, otherwise the icon follows the sidepanel's light/dark theme.
+async function applyIconState(): Promise<void> {
+  const stored = await chrome.storage.local.get(["actionIconIsDark", BACKEND_CONNECTED_STORAGE_KEY]);
+  const enabled = await isExtensionEnabled();
+  const variant: IconVariant = !enabled
+    ? "gray"
+    : stored[BACKEND_CONNECTED_STORAGE_KEY] === false
+      ? "red"
+      : stored.actionIconIsDark
+        ? "white"
+        : "black";
+  await chrome.action.setIcon({ path: iconPaths(variant) });
+}
 
 async function setActionTheme(isDark: boolean): Promise<void> {
-  await chrome.action.setIcon({ path: isDark ? ACTION_ICON_PATHS.dark : ACTION_ICON_PATHS.light });
   await chrome.storage.local.set({ actionIconIsDark: isDark });
+  await applyIconState();
 }
 
-async function restoreActionTheme(): Promise<void> {
-  const value = await chrome.storage.local.get("actionIconIsDark");
-  await setActionTheme(Boolean(value.actionIconIsDark));
+async function checkBackendHealth(): Promise<void> {
+  let connected = false;
+  try {
+    const apiBaseUrl = await getApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/health`);
+    connected = response.ok;
+  } catch {
+    connected = false;
+  }
+  await chrome.storage.local.set({ [BACKEND_CONNECTED_STORAGE_KEY]: connected });
+  await applyIconState();
 }
 
-async function updateEnabledBadge(enabled?: boolean): Promise<void> {
+async function updateActionTitle(enabled?: boolean): Promise<void> {
   const isEnabled = enabled ?? await isExtensionEnabled();
-  await chrome.action.setBadgeText({ text: isEnabled ? "" : "OFF" });
-  await chrome.action.setBadgeBackgroundColor({ color: "#667085" });
+  await chrome.action.setBadgeText({ text: "" });
   await chrome.action.setTitle({ title: isEnabled ? "Resume Tailor" : "Resume Tailor is off" });
 }
 
@@ -45,17 +64,30 @@ async function notifyActiveTab(tabId?: number): Promise<void> {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
   void setActionTheme(false);
-  void updateEnabledBadge();
 });
-chrome.runtime.onStartup.addListener(() => {
-  void restoreActionTheme();
-  void updateEnabledBadge();
+
+// MV3 terminates and respawns this service worker constantly (idle timeout, a manual
+// "Reload" of the unpacked extension, etc.), and neither onInstalled nor onStartup
+// reliably fires for most of those respawns. This top-level code runs every time the
+// worker's module is evaluated — i.e. on every respawn for any reason — so the badge,
+// icon, and connectivity state never sit stale waiting for a lifecycle event that may
+// never come.
+chrome.alarms.create(HEALTH_CHECK_ALARM, { periodInMinutes: 1 });
+void checkBackendHealth();
+void applyIconState();
+void updateActionTitle();
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === HEALTH_CHECK_ALARM) void checkBackendHealth();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") return;
   const change = changes[EXTENSION_ENABLED_STORAGE_KEY];
-  if (change) void updateEnabledBadge(change.newValue !== false);
+  if (change) {
+    void updateActionTitle(change.newValue !== false);
+    void applyIconState();
+  }
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => void notifyActiveTab(tabId));
@@ -66,6 +98,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "COLOR_SCHEME_CHANGED") {
     void setActionTheme(Boolean(message.isDark)).then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (message.type === "BACKEND_STATUS_CHANGED") {
+    void chrome.storage.local.set({ [BACKEND_CONNECTED_STORAGE_KEY]: Boolean(message.connected) })
+      .then(() => applyIconState())
+      .then(() => sendResponse({ ok: true }));
     return true;
   }
   if (message.type === "SET_ACTIVE_JOB_SESSION") {

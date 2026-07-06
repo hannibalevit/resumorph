@@ -31,7 +31,8 @@
     "storage",
     "scripting",
     "tabs",
-    "downloads"
+    "downloads",
+    "alarms"
   ],
   "host_permissions": [
     "http://localhost:8000/*",
