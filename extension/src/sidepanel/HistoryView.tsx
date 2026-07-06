@@ -112,7 +112,7 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
   if (detail) return <section className="history-view">
     <div className="detail-toolbar">
       <button className="secondary" onClick={() => setDetail(null)}>← History</button>
-      <button className="danger compact" disabled={busy !== null} onClick={() => void deleteJob(detail.id)}>{busy === `delete-${detail.id}` && <ButtonSpinner />}{busy === `delete-${detail.id}` ? "Deleting..." : "Delete job"}</button>
+      <button className="danger" disabled={busy !== null} onClick={() => void deleteJob(detail.id)}>{busy === `delete-${detail.id}` && <ButtonSpinner />}{busy === `delete-${detail.id}` ? "Deleting..." : "Delete job"}</button>
     </div>
     <h2>{detail.companyName || "Unknown company"} | {detail.positionTitle || "Untitled role"}</h2>
     <p>{detail.location || "Location not specified"} · {detail.hostname}</p>
@@ -135,7 +135,7 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
   </section>;
 
   return <section className="history-view">
-    <div className="history-heading">
+    <div className="view-heading">
       <h2>History</h2>
       <button className="danger compact" disabled={busy !== null || totalJobCount === 0} onClick={() => void clearHistory()}>{busy === "clear-history" && <ButtonSpinner />}{busy === "clear-history" ? "Clearing..." : "Clear history"}</button>
     </div>
