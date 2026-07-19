@@ -3,10 +3,16 @@ import { api, type ProviderName, type ProviderSettings } from "../shared/apiClie
 import { DEFAULT_API_BASE_URL, getApiBaseUrl, normalizeApiBaseUrl, saveApiBaseUrl, saveOnboardingComplete } from "../shared/storage";
 import { parseResumeFile } from "../shared/resumeParser";
 
-const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string }> = [
+const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string; helpText?: string }> = [
   { id: "openai", label: "OpenAI", placeholder: "sk-..." },
   { id: "gemini", label: "Gemini", placeholder: "AIza..." },
-  { id: "claude", label: "Claude", placeholder: "sk-ant-..." },
+  {
+    id: "claude",
+    label: "Claude",
+    placeholder: "sk-ant-api03-... or sk-ant-oat01-...",
+    helpText:
+      "Paste either a regular Anthropic API key (sk-ant-api03-...) or a Claude Pro/Max subscription OAuth token (sk-ant-oat01-..., generated on your machine with `claude setup-token`). The backend detects which one you pasted automatically.",
+  },
 ];
 
 type OnboardingStep = "backend" | "llm" | "resume";

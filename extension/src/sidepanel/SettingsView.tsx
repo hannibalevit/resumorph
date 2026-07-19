@@ -1,10 +1,16 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 
-const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string }> = [
+const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string; helpText?: string }> = [
   { id: "openai", label: "OpenAI", placeholder: "sk-..." },
   { id: "gemini", label: "Gemini", placeholder: "AIza..." },
-  { id: "claude", label: "Claude", placeholder: "sk-ant-..." },
+  {
+    id: "claude",
+    label: "Claude",
+    placeholder: "sk-ant-api03-... or sk-ant-oat01-...",
+    helpText:
+      "Paste either a regular Anthropic API key (sk-ant-api03-...) or a Claude Pro/Max subscription OAuth token (sk-ant-oat01-..., generated on your machine with `claude setup-token`). The backend detects which one you pasted automatically.",
+  },
 ];
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
@@ -44,8 +50,12 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.providers();
       setSettings(value);
-      setModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? ""])));
-      setAvailableModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels])));
+      // Test connection works on a key the user hasn't saved yet, so the
+      // backend has no persisted config (and no availableModels/defaultModel)
+      // to return for it — keep whatever was already fetched client-side
+      // (e.g. via the live-typing model lookup) instead of clobbering it.
+      setModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? prev[item.provider] ?? ""])));
+      setAvailableModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels.length ? item.availableModels : (prev[item.provider] ?? [])])));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load settings.");
     }
@@ -317,7 +327,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <h3>{provider.label}</h3>
           <span className={`provider-connection ${connection.className}`} title={connection.label}><span className="provider-lamp" />{connection.label}</span>
         </div>
-        <small>{providerConfig?.keyMask ?? "No key saved"}</small>
+        <small>
+          {providerConfig?.keyMask ?? "No key saved"}
+          {providerConfig?.authMode === "subscription" ? " · Claude subscription (OAuth)" : providerConfig?.authMode === "api_key" ? " · API key" : ""}
+        </small>
+        {provider.helpText && <p className="muted provider-help">{provider.helpText}</p>}
         <input type="password" placeholder={provider.placeholder} value={keys[provider.id] ?? ""} onChange={(event) => updateKey(provider.id, event.target.value)} />
         {loadingModels[provider.id] ? <p className="muted">Loading available models…</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => void changeModel(provider.id, event.target.value)} disabled={busy !== null}>
           <option value="">Choose model</option>
