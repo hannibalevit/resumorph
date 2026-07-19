@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.errors import fail
+from app.llm.claude_cli import CLI_MODEL_CATALOG, is_oauth_token
 from app.models import AppSettingsModel, LlmProviderConfigModel
 from app.schemas import LlmTaskName, ProviderName, TaskLlmSetting
 from app.security import SecretEncryptionError, decrypt_secret
@@ -22,12 +23,27 @@ settings = get_settings()
 LLM_TASKS = ("scan", "resume", "field_answer")
 
 
-def default_model_for(provider: str) -> str:
+def default_model_for(provider: str, api_key: str | None = None) -> str:
+    # A Claude OAuth subscription token can only use the CLI's own model
+    # catalog — settings.default_claude_model is a plain-API-key alias
+    # ("claude-3-5-haiku-latest") the `claude` CLI doesn't recognize.
+    if provider == "claude" and api_key is not None and is_oauth_token(api_key):
+        return CLI_MODEL_CATALOG[0]
     return {
         "openai": settings.default_openai_model,
         "gemini": settings.default_gemini_model,
         "claude": settings.default_claude_model,
     }[provider]
+
+
+def _config_default_model(provider: str, config: LlmProviderConfigModel | None) -> str:
+    api_key = None
+    if config is not None:
+        try:
+            api_key = decrypt_secret(config.encrypted_api_key)
+        except SecretEncryptionError:
+            api_key = None
+    return default_model_for(provider, api_key)
 
 
 def effective_default_provider(app_settings: AppSettingsModel | None) -> str:
@@ -62,7 +78,11 @@ def resolve_llm(db: Session, provider_name: str, model: str | None = None) -> tu
             "No LLM provider configured. Open Settings and add an API key.",
             provider=provider_name,
         )
-    effective_model = model or config.default_model or default_model_for(provider_name)
+    try:
+        api_key = decrypt_secret(config.encrypted_api_key)
+    except SecretEncryptionError as exc:
+        raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+    effective_model = model or config.default_model or default_model_for(provider_name, api_key)
     if not effective_model:
         raise fail(
             400,
@@ -70,10 +90,7 @@ def resolve_llm(db: Session, provider_name: str, model: str | None = None) -> tu
             "No model configured for the selected provider.",
             provider=provider_name,
         )
-    try:
-        return provider_name, effective_model, decrypt_secret(config.encrypted_api_key)
-    except SecretEncryptionError as exc:
-        raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+    return provider_name, effective_model, api_key
 
 
 def resolve_default_llm(db: Session) -> tuple[str, str, str]:
@@ -118,7 +135,9 @@ def task_setting_response(
             return TaskLlmSetting(
                 task=cast(LlmTaskName, task),
                 provider=cast(ProviderName, task_provider),
-                model=task_model or config.default_model or default_model_for(task_provider),
+                model=task_model
+                or config.default_model
+                or _config_default_model(task_provider, config),
                 isCustom=is_custom,
             )
     provider_name = effective_default_provider(app_settings)
@@ -135,7 +154,7 @@ def task_setting_response(
             else None
         )
         or (config.default_model if config else None)
-        or default_model_for(provider_name)
+        or _config_default_model(provider_name, config)
     )
     return TaskLlmSetting(
         task=cast(LlmTaskName, task),
