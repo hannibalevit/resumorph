@@ -205,6 +205,10 @@ class ProviderPublicConfig(ApiModel):
     last_test_status: str = Field(alias="lastTestStatus")
     last_test_error: str | None = Field(default=None, alias="lastTestError")
     last_tested_at: datetime | None = Field(default=None, alias="lastTestedAt")
+    # "subscription" when the stored Claude secret is a Claude Code OAuth token
+    # (CLI subprocess path) rather than a regular Anthropic API key. Always
+    # None for providers other than "claude".
+    auth_mode: str | None = Field(default=None, alias="authMode")
 
 
 class TaskLlmSetting(ApiModel):

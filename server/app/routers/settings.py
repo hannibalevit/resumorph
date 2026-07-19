@@ -92,7 +92,7 @@ async def save_llm_provider(
             mask_secret(payload.api_key),
             True,
         )
-    config.default_model = payload.default_model or default_model_for(provider)
+    config.default_model = payload.default_model or default_model_for(provider, payload.api_key)
     if payload.available_models is not None:
         config.available_models, config.models_updated_at = (
             payload.available_models,
@@ -195,7 +195,9 @@ async def test_llm_provider(
         except SecretEncryptionError as exc:
             raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
     model = (
-        payload.model or (config.default_model if config else None) or default_model_for(provider)
+        payload.model
+        or (config.default_model if config else None)
+        or default_model_for(provider, api_key)
     )
     started = time.perf_counter()
     try:
