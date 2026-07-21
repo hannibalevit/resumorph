@@ -178,18 +178,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: server
-          tags: resume-tailor-server:ci
+          tags: resumorph-server:ci
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Run container
         run: |
-          docker run -d --name resume-tailor-server \
+          docker run -d --name resumorph-server \
             -p 8000:8000 \
-            -e DATABASE_URL=sqlite:////tmp/resume_tailor.db \
+            -e DATABASE_URL=sqlite:////tmp/resumorph.db \
             -e ALLOWED_ORIGINS="*" \
-            resume-tailor-server:ci
+            resumorph-server:ci
 
       - name: Wait for health check
         run: |
@@ -205,8 +205,8 @@ jobs:
 
       - name: Container logs
         if: always()
-        run: docker logs resume-tailor-server
+        run: docker logs resumorph-server
 
       - name: Stop container
         if: always()
-        run: docker rm -f resume-tailor-server
+        run: docker rm -f resumorph-server

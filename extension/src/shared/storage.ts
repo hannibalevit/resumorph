@@ -5,7 +5,11 @@ const OPEN_JOB_SESSION_IDS_KEY = "openJobSessionIds";
 export const DEFAULT_API_BASE_URL = "http://localhost:8000";
 export const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
 export const BACKEND_CONNECTED_STORAGE_KEY = "backendConnected";
+export const THEME_PREFERENCE_STORAGE_KEY = "themePreference";
+export const DEBUG_INFO_ENABLED_STORAGE_KEY = "debugInfoEnabled";
 export const MAX_OPEN_JOB_TABS = 5;
+
+export type ThemePreference = "light" | "dark";
 
 type ResumeStorageShape = {
   [BASE_RESUME_KEY]?: string;
@@ -13,6 +17,8 @@ type ResumeStorageShape = {
   [ONBOARDING_COMPLETE_STORAGE_KEY]?: boolean;
   [EXTENSION_ENABLED_STORAGE_KEY]?: boolean;
   [OPEN_JOB_SESSION_IDS_KEY]?: string[];
+  [THEME_PREFERENCE_STORAGE_KEY]?: ThemePreference;
+  [DEBUG_INFO_ENABLED_STORAGE_KEY]?: boolean;
 };
 
 export async function getBaseResume(): Promise<string | null> {
@@ -69,4 +75,22 @@ export async function getOpenJobSessionIds(): Promise<string[]> {
 
 export async function setOpenJobSessionIds(ids: string[]): Promise<void> {
   await chrome.storage.local.set({ [OPEN_JOB_SESSION_IDS_KEY]: ids });
+}
+
+export async function getThemePreference(): Promise<ThemePreference> {
+  const result = await chrome.storage.local.get(THEME_PREFERENCE_STORAGE_KEY) as ResumeStorageShape;
+  return result[THEME_PREFERENCE_STORAGE_KEY] === "dark" ? "dark" : "light";
+}
+
+export async function saveThemePreference(theme: ThemePreference): Promise<void> {
+  await chrome.storage.local.set({ [THEME_PREFERENCE_STORAGE_KEY]: theme });
+}
+
+export async function isDebugInfoEnabled(): Promise<boolean> {
+  const result = await chrome.storage.local.get(DEBUG_INFO_ENABLED_STORAGE_KEY) as ResumeStorageShape;
+  return result[DEBUG_INFO_ENABLED_STORAGE_KEY] === true;
+}
+
+export async function saveDebugInfoEnabled(enabled: boolean): Promise<void> {
+  await chrome.storage.local.set({ [DEBUG_INFO_ENABLED_STORAGE_KEY]: enabled });
 }

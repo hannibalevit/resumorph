@@ -52,7 +52,7 @@ async function checkBackendHealth(): Promise<void> {
 async function updateActionTitle(enabled?: boolean): Promise<void> {
   const isEnabled = enabled ?? await isExtensionEnabled();
   await chrome.action.setBadgeText({ text: "" });
-  await chrome.action.setTitle({ title: isEnabled ? "Resume Tailor" : "Resume Tailor is off" });
+  await chrome.action.setTitle({ title: isEnabled ? "ResuMorph" : "ResuMorph is off" });
 }
 
 async function notifyActiveTab(tabId?: number): Promise<void> {
@@ -117,8 +117,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GENERATE_FIELD_ANSWER") {
     void (async () => {
       try {
-        if (isBlockedUrl(sender.tab?.url)) throw new Error("This site isn't related to job search, so Resume Tailor is disabled here.");
-        if (!await isExtensionEnabled()) throw new Error("Resume Tailor is disabled.");
+        if (isBlockedUrl(sender.tab?.url)) throw new Error("This site isn't related to job search, so ResuMorph is disabled here.");
+        if (!await isExtensionEnabled()) throw new Error("ResuMorph is disabled.");
         const apiBaseUrl = await getApiBaseUrl();
         const response = await fetch(`${apiBaseUrl}/api/job-sessions/${message.jobSessionId}/generate-field-answer`, {
           method: "POST",
@@ -129,7 +129,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!response.ok) throw new Error(payload.error?.message ?? `Backend returned ${response.status}`);
         sendResponse({ answer: payload.answer ?? "", warnings: payload.warnings ?? [] });
       } catch (error) {
-        sendResponse({ error: error instanceof Error ? error.message : "Could not reach the Resume Tailor backend." });
+        sendResponse({ error: error instanceof Error ? error.message : "Could not reach the ResuMorph backend." });
       }
     })();
     return true;

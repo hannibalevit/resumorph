@@ -45,8 +45,8 @@ export function detectFormFields(): DetectedFormField[] {
     const nearbyText = element.parentElement?.innerText?.replace(/\s+/g, " ").trim().slice(0, 600) ?? "";
     const type = element.getAttribute("type") ?? element.tagName.toLowerCase();
     const haystack = `${label} ${nearbyText} ${element.getAttribute("name") ?? ""} ${element.id}`;
-    const fieldId = element.dataset.resumeTailorFieldId ?? `resume-tailor-${index}-${Math.random().toString(36).slice(2, 8)}`;
-    element.dataset.resumeTailorFieldId = fieldId;
+    const fieldId = element.dataset.resumorphFieldId ?? `resumorph-${index}-${Math.random().toString(36).slice(2, 8)}`;
+    element.dataset.resumorphFieldId = fieldId;
     return {
       fieldId,
       tagName: element.tagName.toLowerCase(), type, name: element.getAttribute("name") ?? undefined, id: element.id || undefined,
@@ -58,5 +58,5 @@ export function detectFormFields(): DetectedFormField[] {
 }
 
 export function findField(fieldId: string): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>(FIELD_SELECTOR)].find((element) => element.dataset.resumeTailorFieldId === fieldId);
+  return [...document.querySelectorAll<HTMLElement>(FIELD_SELECTOR)].find((element) => element.dataset.resumorphFieldId === fieldId);
 }

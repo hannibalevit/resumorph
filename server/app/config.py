@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
     allowed_origins: str = Field(default="http://localhost:5173", alias="ALLOWED_ORIGINS")
     openai_timeout_seconds: float = Field(default=60.0, alias="OPENAI_TIMEOUT_SECONDS")
-    database_url: str = Field(default="sqlite:///./resume_tailor.db", alias="DATABASE_URL")
+    database_url: str = Field(default="sqlite:///./resumorph.db", alias="DATABASE_URL")
     master_encryption_key: str = Field(default="", alias="MASTER_ENCRYPTION_KEY")
     default_llm_provider: str = Field(default="openai", alias="DEFAULT_LLM_PROVIDER")
     default_openai_model: str = Field(default="gpt-4.1-mini", alias="DEFAULT_OPENAI_MODEL")

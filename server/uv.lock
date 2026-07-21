@@ -1298,8 +1298,8 @@ wheels = [
 ]
 
 [[package]]
-name = "resume-tailor-server"
-version = "0.0.7"
+name = "resumorph-server"
+version = "0.0.8"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },

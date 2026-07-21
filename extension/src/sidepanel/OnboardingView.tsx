@@ -77,7 +77,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       await finish();
     } catch {
       setStep("resume");
-      setMessage("Add a base resume so Resume Tailor can create tailored versions.");
+      setMessage("Add a base resume so ResuMorph can create tailored versions.");
     }
   };
 
@@ -206,7 +206,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       <div className="onboarding-brand">
         <img src="/icons/icon-48.png" alt="" />
         <div>
-          <p>Resume Tailor</p>
+          <p>ResuMorph</p>
           <h1>{step === "backend" ? "Extension setup" : step === "llm" ? "Connect an LLM" : "Base resume"}</h1>
         </div>
       </div>
@@ -219,7 +219,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
       {step === "backend" && <section className="onboarding-step">
         <h2>Checking the backend</h2>
-        <p>Resume Tailor connects to the local server at the default address. If your server runs somewhere else, enter that address here.</p>
+        <p>ResuMorph connects to the local server at the default address. If your server runs somewhere else, enter that address here.</p>
         <label>
           Backend URL
           <input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder={DEFAULT_API_BASE_URL} disabled={busy !== null} />
@@ -231,7 +231,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
       {step === "llm" && <section className="onboarding-step">
         <h2>Set up an LLM key</h2>
-        <p>At least one working key is required. Resume Tailor verifies the connection before moving on.</p>
+        <p>At least one working key is required. ResuMorph verifies the connection before moving on.</p>
         {PROVIDERS.map((provider) => {
           const config = settings?.providers.find((item) => item.provider === provider.id);
           const connection = providerConnection(config);

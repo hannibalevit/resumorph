@@ -23,7 +23,7 @@ describe("JSON-LD job extraction", () => {
           "description": "<p>${longDescription}</p>",
           "datePosted": "2026-07-01",
           "employmentType": "FULL_TIME",
-          "hiringOrganization": { "name": "Resume Tailor Labs" },
+          "hiringOrganization": { "name": "ResuMorph Labs" },
           "jobLocation": {
             "address": {
               "addressLocality": "Tbilisi",
@@ -47,7 +47,7 @@ describe("JSON-LD job extraction", () => {
     expect(hasJsonLdJobPosting()).toBe(true);
     expect(result?.detected).toMatchObject({
       jobTitle: "Senior Product Engineer",
-      company: "Resume Tailor Labs",
+      company: "ResuMorph Labs",
       location: "Tbilisi, GE",
       employmentType: "FULL_TIME",
       salary: "USD 100000-130000 YEAR",

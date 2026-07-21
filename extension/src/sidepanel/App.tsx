@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
-import { BACKEND_CONNECTED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, getOpenJobSessionIds, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type ThemePreference } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
 import { OnboardingView } from "./OnboardingView";
@@ -104,6 +104,9 @@ export function App() {
   const [status, setStatus] = useState("Ready to scan this page.");
   const [busy, setBusy] = useState<BusyState>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [theme, setTheme] = useState<ThemePreference>("light");
+  const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
+  const [manualTextOpen, setManualTextOpen] = useState(false);
   const [view, setView] = useState<"jobs" | "history" | "settings">("jobs");
   const [openSessionIds, setOpenSessionIds] = useState<string[]>([]);
   const openSessionIdsLoaded = useRef(false);
@@ -128,12 +131,14 @@ export function App() {
   }, [manualTextKey]);
 
   useEffect(() => {
-    const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-    const syncActionTheme = () => void chrome.runtime.sendMessage({ type: "COLOR_SCHEME_CHANGED", isDark: colorScheme.matches }).catch(() => undefined);
-    syncActionTheme();
-    colorScheme.addEventListener("change", syncActionTheme);
-    return () => colorScheme.removeEventListener("change", syncActionTheme);
+    void getThemePreference().then(setTheme).catch(() => undefined);
+    void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    void chrome.runtime.sendMessage({ type: "COLOR_SCHEME_CHANGED", isDark: theme === "dark" }).catch(() => undefined);
+  }, [theme]);
 
   const refreshSessions = useCallback(async () => {
     const result = await api.sessions(); setSessions(result); return result;
@@ -207,6 +212,10 @@ export function App() {
       // background health poll can flip this while the sidepanel just sits open.
       const connectedChange = changes[BACKEND_CONNECTED_STORAGE_KEY];
       if (connectedChange) setBackend(connectedChange.newValue === false ? "disconnected" : "connected");
+      const themeChange = changes[THEME_PREFERENCE_STORAGE_KEY];
+      if (themeChange) setTheme(themeChange.newValue === "dark" ? "dark" : "light");
+      const debugInfoChange = changes[DEBUG_INFO_ENABLED_STORAGE_KEY];
+      if (debugInfoChange) setDebugInfoEnabled(debugInfoChange.newValue === true);
     };
     chrome.runtime.onMessage.addListener(listener);
     chrome.storage.onChanged.addListener(storageListener);
@@ -351,7 +360,7 @@ export function App() {
     try {
       const artifact: ArtifactDetail = await api.artifact(artifactId);
       if (!artifact.base64File) throw new Error("This saved artifact does not include a downloadable file.");
-      downloadBase64(artifact.base64File, artifact.mimeType, artifact.fileName || "resume-tailor-artifact");
+      downloadBase64(artifact.base64File, artifact.mimeType, artifact.fileName || "resumorph-artifact");
       setStatus("Saved file is ready for download.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not download saved file.");
@@ -399,20 +408,20 @@ export function App() {
       <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>
       <button className="primary" disabled={generationDisabled} onClick={() => void generateCoverLetter()}>{busy === "coverLetter" && <ButtonSpinner />}{busy === "coverLetter" ? "Generating..." : hasCoverLetterArtifact ? "Update cover letter" : "Generate cover letter"}</button>
     </section>
-    <section className="manual-scan" aria-label="Manual vacancy scan">
-      <label htmlFor="manual-job-text">Manual vacancy text</label>
+    <details className="manual-scan" aria-label="Manual vacancy scan" open={manualTextOpen} onToggle={(event) => setManualTextOpen((event.target as HTMLDetailsElement).open)}>
+      <summary>Manual vacancy text</summary>
+      <label htmlFor="manual-job-text">Paste the vacancy text below</label>
       <textarea ref={manualTextareaRef} id="manual-job-text" value={manualJobText} onChange={(event) => setManualJobText(event.target.value)} placeholder="Paste vacancy text here" />
       <div className="manual-scan-actions">
-        <span>{manualJobText.trim().length.toLocaleString()} chars</span>
         <button className="secondary compact" onClick={() => void scanManualText()} disabled={manualScanDisabled}>{busy === "manualScan" && <ButtonSpinner />}{busy === "manualScan" ? "Sending..." : activeSession ? "Rescan from pasted text" : "Scan pasted text"}</button>
       </div>
-    </section>
-    <p className="status" role="status">{status}</p>
+    </details>
+    {status && <p className="status" role="status">{status}</p>}
     <nav className="tabs" aria-label="Job sessions">{visibleSessions.length === 0 ? <span className="empty">No open job tabs</span> : visibleSessions.map((session) => <div key={session.id} className={session.id === activeSession?.id ? "tab-wrap active" : "tab-wrap"}><button className="tab" onClick={() => void selectSession(session.id)} title={tabName(session)}>{tabName(session)}</button><button className="close-tab" aria-label={`Close ${tabName(session)}`} title="Close tab" onClick={() => void closeSession(session.id)}>×</button></div>)}</nav>
-    {!activeSession ? (siteBlocked ? <section className="neutral"><h2>Not a job site</h2><p>Resume Tailor is disabled on this site because it isn't related to job search.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section> : <section className="neutral"><h2>Scan a vacancy</h2><p>Open a job listing or application page, then scan it. The extension never scans or sends page data without your click.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section>) : <section className="job">
-      <div className="job-title"><div><h2>{context?.positionTitle || "Untitled role"}</h2><p>{context?.companyName || "Unknown company"}{context?.location ? ` · ${context.location}` : ""}</p></div><span className="confidence">{Math.round((context?.confidence ?? 0) * 100)}% extracted</span></div>
+    {!activeSession ? (siteBlocked ? <section className="neutral"><h2>Not a job site</h2><p>ResuMorph is disabled on this site because it isn't related to job search.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section> : <section className="neutral"><h2>Scan a vacancy</h2><p>Open a job listing or application page, then scan it. The extension never scans or sends page data without your click.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section>) : <section className="job">
+      <div className="job-title"><div><h2>{context?.positionTitle || "Untitled role"}</h2><p>{context?.companyName || "Unknown company"}{context?.location ? ` · ${context.location}` : ""}</p></div></div>
       <a href={activeSession.sourceUrl} target="_blank" rel="noreferrer">Open source vacancy ↗</a>
-      <div className="badges"><span>Scanned</span>{artifactCount > 0 && <span>{artifactCount} file{artifactCount === 1 ? "" : "s"}</span>}{(snapshot?.formFields.length ?? 0) > 0 && <span>Form detected</span>}</div>
+      {(artifactCount > 0 || (snapshot?.formFields.length ?? 0) > 0) && <div className="badges">{artifactCount > 0 && <span>{artifactCount} file{artifactCount === 1 ? "" : "s"}</span>}{(snapshot?.formFields.length ?? 0) > 0 && <span>Form detected</span>}</div>}
       <section><h3>Summary</h3><p>{context?.jobDescription?.slice(0, 800) || "No description could be extracted."}</p></section>
       <section><h3>Requirements</h3><ul>{context?.requirements.length ? context.requirements.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
       <section><h3>Responsibilities</h3><ul>{context?.responsibilities.length ? context.responsibilities.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
@@ -420,7 +429,7 @@ export function App() {
       {coverLetterBody && <section><div className="section-heading"><h3>Cover letter</h3><button className={coverLetterCopied ? "icon compact copy-button copied" : "icon compact copy-button"} type="button" aria-label={coverLetterCopied ? "Cover letter copied" : "Copy cover letter"} title={coverLetterCopied ? "Copied" : "Copy cover letter"} onClick={() => void copyCoverLetter()}>{coverLetterCopied ? "Copied" : "⧉"}</button></div><article className={coverLetterExpanded ? "cover-letter-card expanded" : "cover-letter-card"}><p>{coverLetterBody}</p></article><button className="secondary compact show-more-button" type="button" onClick={() => setCoverLetterExpanded((current) => !current)}>{coverLetterExpanded ? "Show less" : "Show more"}</button></section>}
       {activeSession.artifacts.length > 0 && <section><h3>Saved files</h3>{activeSession.artifacts.map((artifact) => <article className="artifact" key={artifact.id}><strong>{artifact.title}</strong><small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>{artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>{busy === "download" && <ButtonSpinner />}{busy === "download" ? "Downloading..." : "Download"}</button>}</article>)}</section>}
       {!resumePresent && <p className="warning">Upload a base resume before generating tailored materials.</p>}
-      <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Full visible characters</dt><dd>{snapshot?.visibleText.length ?? 0}</dd><dt>Primary source</dt><dd>{snapshot?.primaryJobSource || "full_visible_text"}</dd><dt>Primary characters</dt><dd>{snapshot?.primaryJobText?.length ?? 0}</dd><dt>Detected form fields</dt><dd>{snapshot?.formFields.length ?? 0}</dd><dt>Extraction warnings</dt><dd>{snapshot?.extractionWarnings?.join("; ") || "None"}</dd><dt>LLM warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>
+      {debugInfoEnabled && <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Full visible characters</dt><dd>{snapshot?.visibleText.length ?? 0}</dd><dt>Primary source</dt><dd>{snapshot?.primaryJobSource || "full_visible_text"}</dd><dt>Primary characters</dt><dd>{snapshot?.primaryJobText?.length ?? 0}</dd><dt>Detected form fields</dt><dd>{snapshot?.formFields.length ?? 0}</dd><dt>Extraction warnings</dt><dd>{snapshot?.extractionWarnings?.join("; ") || "None"}</dd><dt>LLM warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>}
     </section>}</>}
     <footer className="app-footer" aria-label="Extension controls">
       <span className={`connection ${connectionLabel}`}>● {connectionLabel}</span>

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./.pytest-resume-tailor.db")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./.pytest-resumorph.db")
 os.environ.setdefault("MASTER_ENCRYPTION_KEY", "R2-b5G977FsaMIr7APa2wf2CMhpZ6LhsQGxCYyPxV9o=")
 
 from app.config import get_settings  # noqa: E402

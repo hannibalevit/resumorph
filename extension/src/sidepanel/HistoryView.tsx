@@ -109,7 +109,10 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
     }
   };
 
-  if (detail) return <section className="history-view">
+  if (detail) {
+    const companyLink = detail.relatedLinks.find((link) => link.linkType === "company");
+    const companyJobsLink = detail.relatedLinks.find((link) => link.linkType === "company_jobs");
+    return <section className="history-view">
     <div className="detail-toolbar">
       <button className="secondary" onClick={() => setDetail(null)}>← History</button>
       <button className="danger" disabled={busy !== null} onClick={() => void deleteJob(detail.id)}>{busy === `delete-${detail.id}` && <ButtonSpinner />}{busy === `delete-${detail.id}` ? "Deleting..." : "Delete job"}</button>
@@ -121,8 +124,16 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
     <p>{detail.jobContext.jobDescription || "No description saved."}</p>
     <h3>Requirements</h3>
     <ul>{detail.jobContext.requirements.length ? detail.jobContext.requirements.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul>
+    <h3>Responsibilities</h3>
+    <ul>{detail.jobContext.responsibilities.length ? detail.jobContext.responsibilities.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul>
+    <h3>Keywords</h3>
+    <div className="keywords">{detail.jobContext.keywords.length ? detail.jobContext.keywords.map((word) => <span key={word}>{word}</span>) : "No keywords detected"}</div>
     <h3>Related links</h3>
-    <ul>{detail.relatedLinks.length ? detail.relatedLinks.map((link) => <li key={link.id}><a href={link.url} target="_blank" rel="noreferrer">{link.linkType}: {link.title || link.url}</a></li>) : <li>No related links saved.</li>}</ul>
+    <ul>
+      <li><a href={detail.sourceUrl} target="_blank" rel="noreferrer">Original vacancy</a></li>
+      {companyLink && <li><a href={companyLink.url} target="_blank" rel="noreferrer">Company</a></li>}
+      {companyJobsLink && <li><a href={companyJobsLink.url} target="_blank" rel="noreferrer">Other vacancies at this company</a></li>}
+    </ul>
     <h3>Generated artifacts</h3>
     {artifacts.length === 0 && <p className="muted">No generated artifacts for this job yet.</p>}
     {artifacts.map((artifact) => <article className="artifact" key={artifact.id}>
@@ -131,8 +142,9 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
       {artifact.base64File && <button className="secondary compact" onClick={() => downloadArtifact(artifact)}>Download</button>}
       {typeof artifact.contentJson.body === "string" && <button className="secondary compact" onClick={() => void copyText(artifact)}>{copiedArtifactId === artifact.id ? "Copied" : "Copy text"}</button>}
     </article>)}
-    <p className="status">{message}</p>
+    {message && <p className="status">{message}</p>}
   </section>;
+  }
 
   return <section className="history-view">
     <div className="view-heading">
@@ -158,6 +170,6 @@ export function HistoryView({ onDeleted, onCleared }: HistoryViewProps) {
       <button className="danger compact" disabled={busy !== null} onClick={(event) => { event.stopPropagation(); void deleteJob(item.id); }}>{busy === `delete-${item.id}` && <ButtonSpinner />}{busy === `delete-${item.id}` ? "Deleting..." : "Delete"}</button>
     </article>)}
     {items.length === 0 && <p className="muted">No saved job sessions.</p>}
-    <p className="status">{message}</p>
+    {message && <p className="status">{message}</p>}
   </section>;
 }

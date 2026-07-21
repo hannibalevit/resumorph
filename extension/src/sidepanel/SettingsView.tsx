@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
+import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
 
 const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string; helpText?: string }> = [
   { id: "openai", label: "OpenAI", placeholder: "sk-..." },
@@ -35,7 +36,9 @@ function providerConnection(config: ProviderConfig | undefined): { className: st
 }
 
 export function SettingsView({ onResumeSaved }: SettingsViewProps) {
-  const [activeTab, setActiveTab] = useState<"resume" | "llm" | "tasks">("resume");
+  const [activeTab, setActiveTab] = useState<"resume" | "llm" | "tasks" | "general">("general");
+  const [theme, setTheme] = useState<ThemePreference>("light");
+  const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [models, setModels] = useState<Record<string, string>>({});
@@ -75,7 +78,19 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   useEffect(() => {
     void load();
     void loadResumeState();
+    void getThemePreference().then(setTheme).catch(() => undefined);
+    void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
   }, []);
+
+  const changeTheme = async (next: ThemePreference) => {
+    setTheme(next);
+    await saveThemePreference(next);
+  };
+
+  const changeDebugInfoEnabled = async (enabled: boolean) => {
+    setDebugInfoEnabled(enabled);
+    await saveDebugInfoEnabled(enabled);
+  };
 
   const config = (provider: ProviderName): ProviderConfig | undefined => settings?.providers.find((item) => item.provider === provider);
 
@@ -303,12 +318,34 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   return <section className="settings-view">
     <div className="view-heading"><h2>Settings</h2></div>
     <nav className="settings-tabs" aria-label="Settings sections">
+      <button className={activeTab === "general" ? "active" : ""} onClick={() => setActiveTab("general")}>General</button>
       <button className={activeTab === "resume" ? "active" : ""} onClick={() => setActiveTab("resume")}>Base resume</button>
       <button className={activeTab === "llm" ? "active" : ""} onClick={() => setActiveTab("llm")}>LLM models</button>
       <button className={activeTab === "tasks" ? "active" : ""} onClick={() => setActiveTab("tasks")}>Task routing</button>
     </nav>
 
-    {activeTab === "resume" ? <section className="settings-panel">
+    {activeTab === "general" ? <section className="settings-panel">
+      <div className="toggle-row">
+        <div>
+          <h3>Dark theme</h3>
+          <p className="muted">Switch the extension between light and dark appearance.</p>
+        </div>
+        <label className="toggle-switch">
+          <input type="checkbox" checked={theme === "dark"} onChange={(event) => void changeTheme(event.target.checked ? "dark" : "light")} aria-label="Toggle dark theme" />
+          <span className="toggle-slider" aria-hidden="true" />
+        </label>
+      </div>
+      <div className="toggle-row">
+        <div>
+          <h3>Debug information</h3>
+          <p className="muted">Show the technical debug details section on the job tab.</p>
+        </div>
+        <label className="toggle-switch">
+          <input type="checkbox" checked={debugInfoEnabled} onChange={(event) => void changeDebugInfoEnabled(event.target.checked)} aria-label="Toggle debug information" />
+          <span className="toggle-slider" aria-hidden="true" />
+        </label>
+      </div>
+    </section> : activeTab === "resume" ? <section className="settings-panel">
       <h3>Base resume</h3>
       <p className="muted">{resumePresent ? "A base resume is saved on the local backend." : "No base resume is saved yet."}</p>
       <label className={`secondary upload-control ${busy === "resume" ? "disabled" : ""}`}>
@@ -385,6 +422,6 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       })}
     </section>}
 
-    <p className="status">{message}</p>
+    {message && <p className="status">{message}</p>}
   </section>;
 }

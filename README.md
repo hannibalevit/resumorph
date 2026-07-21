@@ -1,4 +1,4 @@
-# 📄 Resume Tailor
+# 📄 ResuMorph
 
 [![Release](.github/badges/version.svg)](https://github.com/hannibalevit/resume-tailor/releases)
 [![Backend coverage](.github/badges/coverage.svg)](.github/workflows/server-ci.yml)
@@ -104,7 +104,7 @@ The pre-built extension is included in `extension/dist/` — no Node.js required
 3. Click **Load unpacked**
 4. Select the **`extension/dist`** folder from this repository
 
-The 📄 Resume Tailor icon will appear in your Chrome toolbar. Click it to open the Side Panel.
+The 📄 ResuMorph icon will appear in your Chrome toolbar. Click it to open the Side Panel.
 
 ---
 
@@ -157,14 +157,14 @@ Only needed if you modify the extension code:
 make build-extension
 ```
 
-Then reload the extension: go to `chrome://extensions` and click the **↺** reload icon next to Resume Tailor.
+Then reload the extension: go to `chrome://extensions` and click the **↺** reload icon next to ResuMorph.
 
 ---
 
 ## Project structure
 
 ```
-resume-tailor-extension/
+resumorph/
 ├── extension/
 │   ├── dist/               ← pre-built extension — load this in Chrome
 │   └── src/
@@ -209,7 +209,7 @@ Enable **Developer mode** in `chrome://extensions` first (toggle in the top-righ
 
 **After a Chrome update, the extension is disabled**
 
-Chrome sometimes disables unpacked extensions after updates. Go to `chrome://extensions` and click **Enable** next to Resume Tailor.
+Chrome sometimes disables unpacked extensions after updates. Go to `chrome://extensions` and click **Enable** next to ResuMorph.
 
 ---
 
