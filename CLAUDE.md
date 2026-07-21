@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Chrome Side Panel extension ("Resume Tailor") that tailors a user's resume to a job posting using an LLM, plus a local FastAPI + SQLite backend. The backend runs in Docker on `localhost:8000`; all user data (resume text, job sessions, encrypted API keys) stays on the user's machine. Only the LLM API call leaves the machine.
+A Chrome Side Panel extension ("ResuMorph") that tailors a user's resume to a job posting using an LLM, plus a local FastAPI + SQLite backend. The backend runs in Docker on `localhost:8000`; all user data (resume text, job sessions, encrypted API keys) stays on the user's machine. Only the LLM API call leaves the machine.
 
 Two independent projects in one repo:
 - `extension/` — TypeScript Chrome MV3 extension (Vite build, React side panel)

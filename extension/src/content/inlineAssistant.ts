@@ -2,7 +2,7 @@ import { detectFormFields, findField } from "./formDetector";
 import type { DetectedFormField } from "../shared/sidepanelTypes";
 import { isBlockedUrl } from "./blockedSites";
 
-const BUTTON_CLASS = "resume-tailor-ai-button";
+const BUTTON_CLASS = "resumorph-ai-button";
 const BUTTON_ICON = chrome.runtime.getURL("icons/icon-32.png");
 const BUTTON_INSET = 5;
 const BUTTON_MAX_SIZE = 26;
@@ -30,9 +30,9 @@ function removeAllInlineButtons(): void {
 }
 
 function styles(): void {
-  if (document.getElementById("resume-tailor-ai-styles")) return;
+  if (document.getElementById("resumorph-ai-styles")) return;
   const style = document.createElement("style");
-  style.id = "resume-tailor-ai-styles";
+  style.id = "resumorph-ai-styles";
   style.textContent = `.${BUTTON_CLASS}{position:fixed;z-index:2147483646;display:grid;place-items:center;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;cursor:pointer;overflow:hidden;box-sizing:border-box}.${BUTTON_CLASS}[hidden]{display:none!important}.${BUTTON_CLASS}:focus-visible{outline:2px solid #0a66c2;outline-offset:2px}.${BUTTON_CLASS}:disabled{cursor:wait;opacity:.7}.${BUTTON_CLASS} img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}`;
   document.documentElement.append(style);
 }
@@ -73,7 +73,7 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
   button.setAttribute("aria-label", "Generating answer");
   try {
     const active = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_JOB_SESSION" }) as { jobSessionId?: string };
-    if (!active.jobSessionId) throw new Error("Open Resume Tailor and scan or select a job first.");
+    if (!active.jobSessionId) throw new Error("Open ResuMorph and scan or select a job first.");
     const response = await generateFieldAnswer(active.jobSessionId, field);
     if (!response.answer) throw new Error(response.warnings[0] ?? "No safe answer was generated.");
     const element = findField(field.fieldId);
@@ -82,14 +82,14 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
   } catch (error) {
     if (isInvalidatedContextError(error)) {
       removeAllInlineButtons();
-      alert("Resume Tailor was reloaded. Refresh this browser tab, then try generating the answer again.");
+      alert("ResuMorph was reloaded. Refresh this browser tab, then try generating the answer again.");
     } else {
       alert(error instanceof Error ? error.message : "Could not generate an answer.");
     }
   } finally {
     if (!button.isConnected) return;
     button.disabled = false;
-    button.setAttribute("aria-label", "Generate answer with Resume Tailor");
+    button.setAttribute("aria-label", "Generate answer with ResuMorph");
   }
 }
 
@@ -128,7 +128,7 @@ export function mountInlineAssistant(): void {
       button.type = "button";
       button.className = BUTTON_CLASS;
       button.dataset.fieldId = field.fieldId;
-      button.setAttribute("aria-label", "Generate answer with Resume Tailor");
+      button.setAttribute("aria-label", "Generate answer with ResuMorph");
       const icon = document.createElement("img");
       icon.src = BUTTON_ICON;
       icon.alt = "";

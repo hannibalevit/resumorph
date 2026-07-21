@@ -21,7 +21,7 @@ colorScheme.addEventListener("change", syncActionTheme);
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SCAN_PAGE") {
     if (siteBlocked) { sendResponse({ error: "This site isn't related to job search, so scanning is disabled here." }); return true; }
-    void isExtensionEnabled().then((enabled) => sendResponse(enabled ? { snapshot: createPageSnapshot() } : { error: "Resume Tailor is disabled." }));
+    void isExtensionEnabled().then((enabled) => sendResponse(enabled ? { snapshot: createPageSnapshot() } : { error: "ResuMorph is disabled." }));
     return true;
   }
   if (message.type === "GET_FORM_FIELDS") {

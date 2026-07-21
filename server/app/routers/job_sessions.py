@@ -89,13 +89,14 @@ async def scan_job(payload: ScanRequest, db: Session = Depends(get_db)) -> JobSe
         normalized_link = normalize_url(href)
         if normalized_link in existing_links:
             continue
+        link_text = link.get("text") or ""
         db.add(
             JobRelatedLinkModel(
                 job_session_id=session.id,
                 url=href,
                 normalized_url=normalized_link,
-                link_type=classify_related_link(href),
-                title=link.get("text") or None,
+                link_type=classify_related_link(href, link_text, session.company_name),
+                title=link_text or None,
             )
         )
         existing_links.add(normalized_link)

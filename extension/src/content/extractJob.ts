@@ -3,28 +3,28 @@ import type { ExtractedJobPage } from "./jobExtraction/types";
 
 declare global {
   interface Window {
-    __resumeTailorLastExtraction?: ExtractedJobPage;
-    __resumeTailorExtractionError?: string;
-    __resumeTailorExtractionPromise?: Promise<void>;
-    __resumeTailorRunExtraction?: () => Promise<void>;
+    __resumorphLastExtraction?: ExtractedJobPage;
+    __resumorphExtractionError?: string;
+    __resumorphExtractionPromise?: Promise<void>;
+    __resumorphRunExtraction?: () => Promise<void>;
   }
 }
 
-window.__resumeTailorRunExtraction = () => {
-  window.__resumeTailorExtractionPromise = extractJobFromPage()
+window.__resumorphRunExtraction = () => {
+  window.__resumorphExtractionPromise = extractJobFromPage()
     .then((extraction) => {
-      window.__resumeTailorLastExtraction = extraction;
-      window.__resumeTailorExtractionError = undefined;
+      window.__resumorphLastExtraction = extraction;
+      window.__resumorphExtractionError = undefined;
     })
     .catch((error: unknown) => {
-      window.__resumeTailorExtractionError =
+      window.__resumorphExtractionError =
         error instanceof Error ? error.message : "Could not extract job page.";
     });
 
-  return window.__resumeTailorExtractionPromise;
+  return window.__resumorphExtractionPromise;
 };
 
-void window.__resumeTailorRunExtraction();
+void window.__resumorphRunExtraction();
 
 export { extractJobFromPage };
 export type { ExtractedJobPage };

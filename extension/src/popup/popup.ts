@@ -102,8 +102,8 @@ async function scanVacancy(): Promise<ExtractedJobPage> {
   const [runnerCheck] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () =>
-      typeof (window as unknown as { __resumeTailorRunExtraction?: unknown })
-        .__resumeTailorRunExtraction === "function",
+      typeof (window as unknown as { __resumorphRunExtraction?: unknown })
+        .__resumorphRunExtraction === "function",
   });
 
   if (!runnerCheck.result) {
@@ -117,18 +117,18 @@ async function scanVacancy(): Promise<ExtractedJobPage> {
     target: { tabId },
     func: async () => {
       const extractionWindow = window as unknown as {
-        __resumeTailorLastExtraction?: ExtractedJobPage;
-        __resumeTailorExtractionError?: string;
-        __resumeTailorExtractionPromise?: Promise<void>;
-        __resumeTailorRunExtraction?: () => Promise<void>;
+        __resumorphLastExtraction?: ExtractedJobPage;
+        __resumorphExtractionError?: string;
+        __resumorphExtractionPromise?: Promise<void>;
+        __resumorphRunExtraction?: () => Promise<void>;
       };
 
-      await extractionWindow.__resumeTailorRunExtraction?.();
-      await extractionWindow.__resumeTailorExtractionPromise;
+      await extractionWindow.__resumorphRunExtraction?.();
+      await extractionWindow.__resumorphExtractionPromise;
 
       return {
-        extraction: extractionWindow.__resumeTailorLastExtraction,
-        error: extractionWindow.__resumeTailorExtractionError,
+        extraction: extractionWindow.__resumorphLastExtraction,
+        error: extractionWindow.__resumorphExtractionError,
       };
     },
   });

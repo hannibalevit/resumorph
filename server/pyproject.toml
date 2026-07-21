@@ -1,7 +1,7 @@
 [project]
-name = "resume-tailor-server"
+name = "resumorph-server"
 version = "0.0.8"
-description = "FastAPI backend for the Resume Tailor Chrome extension"
+description = "FastAPI backend for the ResuMorph Chrome extension"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Resume Tailor",
+  "name": "ResuMorph",
   "description": "Generate a tailored resume from a saved base resume and the active job page.",
   "version": "0.0.8",
   "action": {
-    "default_title": "Resume Tailor",
+    "default_title": "ResuMorph",
     "default_icon": {
       "16": "icons/action-black-16.png",
       "32": "icons/action-black-32.png",

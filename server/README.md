@@ -1,6 +1,6 @@
-# Resume Tailor Backend
+# ResuMorph Backend
 
-FastAPI backend for the Resume Tailor Chrome extension.
+FastAPI backend for the ResuMorph Chrome extension.
 
 ## Setup
 

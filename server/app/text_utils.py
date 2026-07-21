@@ -2,13 +2,53 @@
 
 import re
 
+_COMPANY_JOBS_LINK_PHRASES = (
+    "all jobs",
+    "all open positions",
+    "all openings",
+    "browse jobs",
+    "careers",
+    "current openings",
+    "explore careers",
+    "job openings",
+    "open positions",
+    "open roles",
+    "our jobs",
+    "search jobs",
+    "see all jobs",
+    "view all jobs",
+    "view jobs",
+    "view openings",
+)
+_COMPANY_HOME_LINK_PHRASES = (
+    "about us",
+    "company website",
+    "home page",
+    "homepage",
+    "learn more about",
+    "our website",
+    "visit our website",
+    "visit website",
+)
 
-def classify_related_link(url: str) -> str:
-    lowered = url.lower()
-    if "linkedin.com" in lowered:
+
+def classify_related_link(url: str, text: str = "", company_name: str | None = None) -> str:
+    """Classify a scraped anchor as one of a fixed set of link types.
+
+    ``company``/``company_jobs`` rely on the anchor's visible text (a URL alone
+    can't distinguish a company's homepage or "all open roles" page from any
+    other link on the same domain), so a link is only ever tagged that way
+    when the page itself labelled it clearly enough — anything ambiguous
+    falls through to ``other`` rather than guessing.
+    """
+    lowered_url = url.lower()
+    lowered_text = text.strip().lower()
+    if "linkedin.com" in lowered_url:
         return "linkedin"
+    if any(phrase in lowered_text for phrase in _COMPANY_JOBS_LINK_PHRASES):
+        return "company_jobs"
     if any(
-        part in lowered
+        part in lowered_url
         for part in (
             "greenhouse.io",
             "lever.co",
@@ -18,8 +58,14 @@ def classify_related_link(url: str) -> str:
         )
     ):
         return "ats"
-    if any(part in lowered for part in ("apply", "application", "candidate")):
+    if any(part in lowered_text for part in ("apply", "application")) or any(
+        part in lowered_url for part in ("apply", "application", "candidate")
+    ):
         return "application_form"
+    if lowered_text and company_name and lowered_text == company_name.strip().lower():
+        return "company"
+    if any(phrase in lowered_text for phrase in _COMPANY_HOME_LINK_PHRASES):
+        return "company"
     return "other"
 
 
