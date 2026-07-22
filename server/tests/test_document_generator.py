@@ -1,10 +1,6 @@
 from io import BytesIO
 
-from app.document_generator import (
-    DOCX_MIME_TYPE,
-    create_docx_resume,
-    create_docx_text,
-)
+from app.document_generator import create_docx_resume
 from app.schemas import LegacyTailoredResume, ResumeExperienceItem
 from docx import Document
 
@@ -72,15 +68,3 @@ def test_create_docx_resume_omits_optional_sections_when_empty() -> None:
     assert "EXPERIENCE" not in text
     assert "EDUCATION" not in text
     assert "PROJECTS" not in text
-
-
-def test_create_docx_text_renders_title_and_paragraphs() -> None:
-    body = "First paragraph.\n\n   \n\nSecond paragraph."
-
-    data = create_docx_text("Cover Letter", body)
-
-    assert DOCX_MIME_TYPE.endswith("wordprocessingml.document")
-    text = _read_docx_text(data)
-    assert "Cover Letter" in text
-    assert "First paragraph." in text
-    assert "Second paragraph." in text

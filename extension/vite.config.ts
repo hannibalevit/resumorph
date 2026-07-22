@@ -26,8 +26,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: resolve(currentDir, "src/popup/popup.html"),
-        upload: resolve(currentDir, "src/upload/upload.html"),
         sidepanel: resolve(currentDir, "src/sidepanel/sidepanel.html"),
         serviceWorker: resolve(currentDir, "src/background/serviceWorker.ts"),
         pageAssistant: resolve(currentDir, "src/content/pageAssistant.ts"),

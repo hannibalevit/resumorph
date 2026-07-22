@@ -12,7 +12,7 @@ uv sync --dev        # ...including test deps (pytest, httpx)
 cp .env.example .env
 ```
 
-Edit `.env` and set `OPENAI_API_KEY`.
+Edit `.env` and set `MASTER_ENCRYPTION_KEY` to a Fernet key (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — this encrypts the LLM provider API keys at rest. You don't need to put a provider API key in `.env`: OpenAI/Gemini/Claude keys are entered later through the extension's Settings panel and stored encrypted in the local SQLite database, never in an env var. (The optional `OPENAI_API_KEY` env var only powers the deprecated non-session `POST /api/generate-resume` endpoint in `routers/legacy.py`.)
 
 ## Run
 
@@ -53,4 +53,4 @@ curl http://localhost:8000/health
 
 ## Privacy
 
-The backend does not store resumes or job text. It can parse uploaded `.doc` files for the extension and sends the submitted resume and job page text to the configured OpenAI-compatible API provider when generating the tailored resume. Do not log full resumes or job descriptions in production.
+The backend stores your base resume and scanned job postings locally in SQLite (`UserProfileModel.base_resume_text`, `JobSessionModel.job_context_json`) so tailored resumes, cover letters, and field answers stay consistent across a session — none of this leaves your machine. Provider API keys are Fernet-encrypted at rest and never round-trip to the client in plaintext. The only outbound call is the LLM request itself, sent to whichever provider (OpenAI, Gemini, or Claude) is configured as default or per-task in Settings. Do not log full resumes or job descriptions in production.

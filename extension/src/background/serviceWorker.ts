@@ -16,6 +16,19 @@ function iconPaths(variant: IconVariant): Record<16 | 32 | 48 | 128, string> {
   };
 }
 
+// The absolute-URL fix above still races the browser's extension-resource
+// fetcher right after install/reload often enough to throw "Failed to fetch";
+// one short retry clears it, and applyIconState runs again anyway on the next
+// health-check alarm or storage change, so a still-failing retry is harmless.
+async function setIconWithRetry(path: Record<16 | 32 | 48 | 128, string>): Promise<void> {
+  try {
+    await chrome.action.setIcon({ path });
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await chrome.action.setIcon({ path }).catch(() => undefined);
+  }
+}
+
 // Precedence: an explicitly disabled extension always shows gray, an unreachable
 // backend shows red, otherwise the icon follows the sidepanel's light/dark theme.
 async function applyIconState(): Promise<void> {
@@ -28,7 +41,7 @@ async function applyIconState(): Promise<void> {
       : stored.actionIconIsDark
         ? "white"
         : "black";
-  await chrome.action.setIcon({ path: iconPaths(variant) });
+  await setIconWithRetry(iconPaths(variant));
 }
 
 async function setActionTheme(isDark: boolean): Promise<void> {
