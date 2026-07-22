@@ -45,6 +45,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
       - name: Compute next version and bump files
         id: bump
         env:
@@ -69,9 +76,13 @@ jobs:
 
           sed -i "0,/^version = \".*\"/s//version = \"$NEW_VERSION\"/" server/pyproject.toml
 
+          # Rebuild the committed extension/dist/ (documented as the no-Node-required
+          # distribution) so it never drifts from the version/source it's tagged with.
+          (cd extension && npm ci && npm run build)
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add extension/manifest.json server/pyproject.toml
+          git add extension/manifest.json extension/dist server/pyproject.toml
           git commit -m "chore: bump version to $NEW_TAG [skip ci]"
           git tag -a "$NEW_TAG" -m "$NEW_TAG"
 
@@ -99,25 +110,13 @@ jobs:
     needs: bump-version
     runs-on: ubuntu-latest
     steps:
+      # extension/dist/ is already built and committed as part of the tagged
+      # commit (bump-version job), so this just packages it — no rebuild here,
+      # which guarantees the release zip is byte-identical to what's in git.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-version.outputs.tag }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: extension/package-lock.json
-
-      - name: Install dependencies
-        working-directory: extension
-        run: npm ci
-
-      - name: Build extension
-        working-directory: extension
-        run: npm run build
 
       - name: Zip built extension
         run: |

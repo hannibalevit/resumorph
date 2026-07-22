@@ -8,16 +8,6 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class ApiErrorBody(ApiModel):
-    code: str
-    message: str
-    details: dict[str, Any] = Field(default_factory=dict)
-
-
-class ApiError(ApiModel):
-    error: ApiErrorBody
-
-
 class DetectedFormField(ApiModel):
     field_id: str = Field(alias="fieldId")
     tag_name: str = Field(alias="tagName")

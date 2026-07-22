@@ -2,25 +2,12 @@ from types import SimpleNamespace
 
 import app.openai_client as openai_client
 import pytest
-from app.openai_client import (
-    FieldAnswerGenerationError,
-    JobExtractionError,
-    ResumeGenerationError,
-    build_resume_prompt,
-    extract_contact_info,
-    extract_job_context,
-    generate_field_answer,
-    generate_tailored_resume,
-)
+from app.openai_client import ResumeGenerationError, extract_contact_info, generate_tailored_resume
 from app.schemas import (
-    DetectedFormField,
-    FieldAnswerResponse,
     GenerateOptions,
     GenerateResumeRequest,
-    JobContext,
     JobPage,
     LegacyTailoredResume,
-    PageSnapshot,
     ResumeExperienceItem,
 )
 from openai import OpenAIError
@@ -85,16 +72,6 @@ def test_extract_contact_info_returns_none_for_single_line() -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_resume_prompt
-# ---------------------------------------------------------------------------
-
-
-def test_build_resume_prompt_includes_job_text() -> None:
-    prompt = build_resume_prompt(_resume_request())
-    assert "Build APIs" in prompt
-
-
-# ---------------------------------------------------------------------------
 # generate_tailored_resume
 # ---------------------------------------------------------------------------
 
@@ -133,69 +110,3 @@ async def test_generate_tailored_resume_rejects_invalid_format(monkeypatch) -> N
     _patch_client(monkeypatch, parsed={"not": "a model"})
     with pytest.raises(ResumeGenerationError, match="invalid resume format"):
         await generate_tailored_resume(_resume_request())
-
-
-# ---------------------------------------------------------------------------
-# extract_job_context
-# ---------------------------------------------------------------------------
-
-
-def _snapshot() -> PageSnapshot:
-    return PageSnapshot(
-        url="https://x.com/job",
-        normalizedUrl="https://x.com/job",
-        title="Engineer",
-        visibleText="Build APIs with Python and SQL across teams and services.",
-    )
-
-
-async def test_extract_job_context_requires_api_key(monkeypatch) -> None:
-    _patch_settings(monkeypatch, api_key="")
-    with pytest.raises(JobExtractionError, match="not configured"):
-        await extract_job_context(_snapshot())
-
-
-async def test_extract_job_context_success(monkeypatch) -> None:
-    _patch_settings(monkeypatch)
-    _patch_client(monkeypatch, parsed=JobContext(companyName="Acme", positionTitle="Engineer"))
-    result = await extract_job_context(_snapshot())
-    assert result.company_name == "Acme"
-
-
-async def test_extract_job_context_maps_openai_error(monkeypatch) -> None:
-    _patch_settings(monkeypatch)
-    _patch_client(monkeypatch, raises=OpenAIError("boom"))
-    with pytest.raises(JobExtractionError, match="could not extract"):
-        await extract_job_context(_snapshot())
-
-
-# ---------------------------------------------------------------------------
-# generate_field_answer
-# ---------------------------------------------------------------------------
-
-
-def _field() -> DetectedFormField:
-    return DetectedFormField(fieldId="f1", tagName="textarea", label="Why do you want this role?")
-
-
-async def test_generate_field_answer_requires_api_key(monkeypatch) -> None:
-    _patch_settings(monkeypatch, api_key="")
-    with pytest.raises(FieldAnswerGenerationError, match="not configured"):
-        await generate_field_answer(_field(), BASE_RESUME, JobContext(), "professional", 300)
-
-
-async def test_generate_field_answer_success(monkeypatch) -> None:
-    _patch_settings(monkeypatch)
-    _patch_client(
-        monkeypatch,
-        parsed=FieldAnswerResponse(answer="Because I love it.", confidence=0.8),
-    )
-    result = await generate_field_answer(_field(), BASE_RESUME, JobContext(), "professional", 300)
-    assert result.answer == "Because I love it."
-
-
-async def test_generate_field_answer_maps_unexpected_error(monkeypatch) -> None:
-    _patch_settings(monkeypatch)
-    _patch_client(monkeypatch, raises=RuntimeError("kaboom"))
-    with pytest.raises(FieldAnswerGenerationError, match="Unexpected error"):
-        await generate_field_answer(_field(), BASE_RESUME, JobContext(), "professional", 300)

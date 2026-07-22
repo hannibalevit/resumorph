@@ -75,19 +75,3 @@ def create_docx_resume(resume: LegacyTailoredResume) -> bytes:
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
-
-
-def create_docx_text(title: str, body: str) -> bytes:
-    document = Document()
-    document.styles["Normal"].font.name = "Arial"
-    document.styles["Normal"].font.size = Pt(10.5)
-    heading = document.add_paragraph()
-    run = heading.add_run(title)
-    run.bold = True
-    run.font.size = Pt(16)
-    for paragraph in body.split("\n\n"):
-        if paragraph.strip():
-            document.add_paragraph(paragraph.strip())
-    buffer = BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()

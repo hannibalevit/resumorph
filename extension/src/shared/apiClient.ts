@@ -1,7 +1,5 @@
-import type { ApiError, DetectedFormField, JobSession, JobSessionSummary, PageSnapshot } from "./sidepanelTypes";
-import { DEFAULT_API_BASE_URL, getApiBaseUrl } from "./storage";
-
-export const API_BASE_URL = DEFAULT_API_BASE_URL;
+import type { ApiError, JobSession, JobSessionSummary, PageSnapshot } from "./sidepanelTypes";
+import { getApiBaseUrl } from "./storage";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const apiBaseUrl = await getApiBaseUrl();
@@ -39,7 +37,6 @@ export const api = {
   clearSessions: () => request<void>("/api/job-sessions", { method: "DELETE" }),
   generateResume: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST" }),
   generateCoverLetter: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST" }),
-  fieldAnswer: (id: string, field: DetectedFormField) => request<FieldAnswer>(`/api/job-sessions/${id}/generate-field-answer`, { method: "POST", body: JSON.stringify({ field, tone: "professional", maxLength: 1200 }) }),
   providers: () => request<ProviderSettings>("/api/settings/llm-providers"),
   saveProvider: (provider: ProviderName, apiKey: string, defaultModel: string, availableModels: string[], testAfterSave = false) => request<ProviderConfig>(`/api/settings/llm-providers/${provider}`, { method: "POST", body: JSON.stringify({ apiKey, defaultModel, availableModels, testAfterSave }) }),
   saveProviderModel: (provider: ProviderName, defaultModel: string, availableModels: string[]) => request<ProviderConfig>(`/api/settings/llm-providers/${provider}/default-model`, { method: "POST", body: JSON.stringify({ defaultModel, availableModels }) }),
@@ -56,7 +53,6 @@ export const api = {
 };
 
 export type GeneratedFile = { artifactId: string; fileName: string; mimeType: string; base64: string; notes: { keywordsUsed: string[]; missingRequirements: string[]; warnings: string[] } };
-export type FieldAnswer = { answer: string; confidence: number; needsUserReview: boolean; warnings: string[] };
 export type ProviderName = "openai" | "gemini" | "claude";
 export type LlmTaskName = "scan" | "resume" | "field_answer";
 export type ProviderConfig = { provider: ProviderName; isEnabled: boolean; keyMask?: string; defaultModel?: string; availableModels: string[]; modelsUpdatedAt?: string; lastTestStatus: string; lastTestError?: string; lastTestedAt?: string; authMode?: "api_key" | "subscription" };

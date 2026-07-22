@@ -202,11 +202,6 @@ def extract_context_fallback(snapshot: PageSnapshot) -> JobContext:
     )
 
 
-def missing_requirements(resume: str, context: JobContext) -> list[str]:
-    resume_lower = resume.lower()
-    return [item for item in context.requirements if item.lower() not in resume_lower][:8]
-
-
 def local_field_answer(
     label: str, resume: str, context: JobContext, max_length: int
 ) -> FieldAnswerResponse:

@@ -38,7 +38,6 @@ class JobSessionModel(Base):
     job_context_json: Mapped[dict] = mapped_column(JSON, default=dict)
     raw_page_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
     extraction_confidence: Mapped[float] = mapped_column(Float, default=0.0)
-    llm_conversation_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     llm_provider_used: Mapped[str | None] = mapped_column(String(32), nullable=True)
     llm_model_used: Mapped[str | None] = mapped_column(String(255), nullable=True)
     scan_llm_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
