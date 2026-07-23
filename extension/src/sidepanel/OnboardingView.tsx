@@ -37,6 +37,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [models, setModels] = useState<Record<string, string>>({});
   const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
+  const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
   const [resumeText, setResumeText] = useState("");
   const [message, setMessage] = useState("Checking the local backend...");
   const [busy, setBusy] = useState<string | null>("initial");
@@ -55,6 +56,36 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     setModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? ""])));
     setAvailableModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels])));
     return value;
+  };
+
+  const loadModels = async (provider: ProviderName, apiKey: string) => {
+    setLoadingModels((current) => ({ ...current, [provider]: true }));
+    try {
+      const result = await api.providerModels(provider, apiKey);
+      setAvailableModels((current) => ({ ...current, [provider]: result.models }));
+    } catch {
+      // Key may still be incomplete or invalid; "Verify and save" surfaces the real error.
+    } finally {
+      setLoadingModels((current) => ({ ...current, [provider]: false }));
+    }
+  };
+
+  useEffect(() => {
+    const pending = PROVIDERS.filter(({ id }) => (keys[id] ?? "").trim().length >= 8);
+    if (!pending.length) return;
+    const timer = window.setTimeout(() => {
+      pending.forEach(({ id }) => void loadModels(id, keys[id].trim()));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [keys]);
+
+  const updateKey = (provider: ProviderName, apiKey: string) => {
+    setKeys((current) => ({ ...current, [provider]: apiKey }));
+    setAvailableModels((current) => {
+      const next = { ...current };
+      delete next[provider];
+      return next;
+    });
   };
 
   const advanceAfterBackend = async () => {
@@ -235,8 +266,11 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
               <span className={`provider-connection ${connection.className}`} title={connection.label}><span className="provider-lamp" />{connection.label}</span>
             </div>
             <small>{config?.isEnabled ? config.keyMask : "No key saved"}</small>
-            <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => setKeys((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />
-            <input value={models[provider.id] ?? ""} placeholder="Model, optional" onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />
+            <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => updateKey(provider.id, event.target.value)} disabled={busy !== null} />
+            {loadingModels[provider.id] ? <p className="muted">Loading available models...</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null}>
+              <option value="">Choose model (default)</option>
+              {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}
+            </select> : <input value={models[provider.id] ?? ""} placeholder="Model, optional" onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />}
             <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Checking..." : "Verify and save"}</button>
           </section>;
         })}

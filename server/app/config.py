@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     default_openai_model: str = Field(default="gpt-4.1-mini", alias="DEFAULT_OPENAI_MODEL")
     default_gemini_model: str = Field(default="gemini-2.5-flash-lite", alias="DEFAULT_GEMINI_MODEL")
     default_claude_model: str = Field(
-        default="claude-3-5-haiku-latest", alias="DEFAULT_CLAUDE_MODEL"
+        default="claude-haiku-4-5-20251001", alias="DEFAULT_CLAUDE_MODEL"
     )
 
     model_config = SettingsConfigDict(extra="ignore")

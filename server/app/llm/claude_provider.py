@@ -40,6 +40,6 @@ class ClaudeProvider(LlmProvider):
 
     async def test_connection(self, api_key: str, model: str | None = None) -> dict[str, Any]:
         text = await self.generate_text(
-            api_key, model or "claude-3-5-haiku-latest", "Reply with exactly: ok", "ok", 8
+            api_key, model or "claude-haiku-4-5-20251001", "Reply with exactly: ok", "ok", 8
         )
         return {"rawTextPreview": text[:50]}

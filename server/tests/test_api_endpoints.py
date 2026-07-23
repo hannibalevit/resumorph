@@ -551,7 +551,7 @@ def test_test_provider_claude_without_explicit_model_uses_default(
     )
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-    assert captured["model"] == "claude-3-5-haiku-latest"
+    assert captured["model"] == "claude-haiku-4-5-20251001"
 
 
 # ---------------------------------------------------------------------------
