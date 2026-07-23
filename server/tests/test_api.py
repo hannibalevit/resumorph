@@ -77,7 +77,7 @@ def test_claude_provider_settings_save(client: TestClient) -> None:
         json={"apiKey": "sk-ant-api03-regular-key-1234567890"},
     )
     assert saved_api_key.status_code == 200
-    assert saved_api_key.json()["defaultModel"] == "claude-3-5-haiku-latest"
+    assert saved_api_key.json()["defaultModel"] == "claude-haiku-4-5-20251001"
 
 
 def test_unsupported_provider_returns_structured_error(client: TestClient) -> None:
