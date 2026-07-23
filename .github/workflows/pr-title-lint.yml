@@ -13,8 +13,59 @@ permissions:
   pull-requests: read
 
 jobs:
+  autofix-pr-title:
+    name: Auto-fix PR title from branch name
+    # GitHub's own title suggestion (branch name with "-"/"_" replaced by
+    # spaces and only the first character capitalized) can never satisfy
+    # Conventional Commits, so fix it once up front rather than relying on
+    # whoever opens the PR to type a valid title.
+    if: github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const conventional = /^(feat|fix|perf|refactor|docs|chore|ci|test)(\([^)]+\))?: .+/;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            if (conventional.test(pr.title)) {
+              core.info(`Title "${pr.title}" is already valid, leaving it alone.`);
+              return;
+            }
+
+            const branchMatch = pr.head.ref.match(/^(feat|fix|perf|refactor|docs|chore|ci|test)\/(.+)$/);
+            if (!branchMatch) {
+              core.info(`Branch "${pr.head.ref}" doesn't follow the type/description convention, leaving title as-is.`);
+              return;
+            }
+
+            const [, type, slug] = branchMatch;
+            const description = slug.replace(/[-_]+/g, ' ').trim().toLowerCase();
+            if (!description) {
+              core.info('Could not derive a description from the branch name, leaving title as-is.');
+              return;
+            }
+
+            const newTitle = `${type}: ${description}`;
+            core.info(`Rewriting PR title from "${pr.title}" to "${newTitle}"`);
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              title: newTitle,
+            });
+
   lint-pr-title:
     name: Validate PR title
+    needs: [autofix-pr-title]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@v6
