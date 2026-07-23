@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-23
+
+### Bug Fixes
+
+- *(onboarding)* Retire default Claude model, add model picker (#17) ([`aa2562e`](https://github.com/hannibalevit/resumorph/commit/aa2562e5f405dc9f2c6b453720a2e7fe38ff85a0))
+
 ## [1.0.1] - 2026-07-23
 
 ### Bug Fixes
