@@ -1,22 +1,23 @@
 name: Auto Release
 
-# Every push to main is treated as a release: bump the version, tag it,
-# publish a GitHub Release with the built extension attached, and refresh the
-# version badge. There is no manual "bump the version file" step — the tag
-# history is the single source of truth for what's been released, and this
-# workflow is the only thing that writes to the version fields below.
-# A push always bumps patch; run this workflow manually (workflow_dispatch)
-# and pick bump_type to cut a minor or major release instead.
+# Every push to main is treated as a release: derive the next semantic version
+# from Conventional Commits since the last v* tag (feat -> minor, fix/other ->
+# patch, a `!` or `BREAKING CHANGE:` footer -> major), tag it, generate a
+# categorized changelog entry (git-cliff, config in cliff.toml) prepended to
+# CHANGELOG.md, rebuild the version badge, and publish a GitHub Release with
+# the built extension attached and the changelog entry as the release body.
+# There is no manual "bump the version file" step - the tag history and
+# CHANGELOG.md are the single source of truth, and this workflow is the only
+# thing that writes to the version fields / CHANGELOG.md below.
+# If there are no conventional commits since the last tag (e.g. only
+# chore/ci/docs), no release is cut.
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      bump_type:
-        description: "Version part to bump"
-        type: choice
-        options: [patch, minor, major]
-        default: patch
+  workflow_dispatch: {}
+
+env:
+  GIT_CLIFF_VERSION: "2.13.1"
 
 permissions:
   contents: read
@@ -31,7 +32,7 @@ jobs:
   # but the guard keeps this workflow correct even if triggered manually or via
   # a PAT.)
   bump-version:
-    name: Bump version & tag
+    name: Bump version, changelog & tag
     if: "github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     permissions:
@@ -39,6 +40,7 @@ jobs:
     outputs:
       version: ${{ steps.bump.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
+      released: ${{ steps.bump.outputs.released }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,29 +54,59 @@ jobs:
           cache: npm
           cache-dependency-path: extension/package-lock.json
 
-      - name: Compute next version and bump files
+      - name: Install git-cliff
+        run: |
+          curl -sL "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Compute next version, update changelog, bump files
         id: bump
-        env:
-          BUMP_TYPE: ${{ inputs.bump_type || 'patch' }}
         run: |
           git fetch --tags --force
           LAST_TAG=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
-          LAST_VERSION=${LAST_TAG#v}
-          LAST_VERSION=${LAST_VERSION:-0.0.0}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
-          case "$BUMP_TYPE" in
-            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
-            minor) NEW_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
-            patch) NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
-            *) echo "::error::Unknown bump_type '$BUMP_TYPE'"; exit 1 ;;
-          esac
-          NEW_TAG="v$NEW_VERSION"
-          echo "Bumping $LAST_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
+          LAST_TAG=${LAST_TAG:-v0.0.0}
+
+          NEW_TAG=$(git-cliff --bumped-version 2>/dev/null)
+
+          if [ "$NEW_TAG" = "$LAST_TAG" ]; then
+            echo "No conventional commits since $LAST_TAG; nothing to release."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NEW_VERSION=${NEW_TAG#v}
+          echo "Bumping $LAST_TAG -> $NEW_TAG"
 
           jq --arg v "$NEW_VERSION" '.version = $v' extension/manifest.json > extension/manifest.json.tmp
           mv extension/manifest.json.tmp extension/manifest.json
 
           sed -i "0,/^version = \".*\"/s//version = \"$NEW_VERSION\"/" server/pyproject.toml
+
+          # Create CHANGELOG.md with the standard Keep a Changelog header if it
+          # doesn't exist yet (must match cliff.toml's [changelog].header
+          # byte-for-byte - see the comment at the top of cliff.toml for why).
+          if [ ! -f CHANGELOG.md ]; then
+            cat > CHANGELOG.md <<'HEADER'
+          # Changelog
+
+          All notable changes to this project are documented in this file.
+
+          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+          and this project adheres to [Semantic Versioning](https://semver.org/).
+
+          ## [Unreleased]
+
+          HEADER
+          fi
+
+          # Prepend just this release's entry (commits since $LAST_TAG, not
+          # yet tagged) into CHANGELOG.md.
+          git-cliff --tag "$NEW_TAG" --unreleased --prepend CHANGELOG.md
+
+          # Release-notes body for just this release, for the GitHub Release
+          # (publish-release regenerates this from the pushed tag rather than
+          # receiving it as an artifact).
 
           # Rebuild the committed extension/dist/ (documented as the no-Node-required
           # distribution) so it never drifts from the version/source it's tagged with.
@@ -82,7 +114,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add extension/manifest.json extension/dist server/pyproject.toml
+          git add extension/manifest.json extension/dist server/pyproject.toml CHANGELOG.md
           git commit -m "chore: bump version to $NEW_TAG [skip ci]"
           git tag -a "$NEW_TAG" -m "$NEW_TAG"
 
@@ -102,12 +134,16 @@ jobs:
           done
           git push origin "$NEW_TAG"
 
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "released=true"
+            echo "version=$NEW_VERSION"
+            echo "tag=$NEW_TAG"
+          } >> "$GITHUB_OUTPUT"
 
   build-extension:
     name: Build extension artifact
     needs: bump-version
+    if: needs.bump-version.outputs.released == 'true'
     runs-on: ubuntu-latest
     steps:
       # extension/dist/ is already built and committed as part of the tagged
@@ -133,10 +169,26 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: [bump-version, build-extension]
+    if: needs.bump-version.outputs.released == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.bump-version.outputs.tag }}
+
+      - name: Install git-cliff
+        run: |
+          curl -sL "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Generate release notes for this release
+        run: |
+          git-cliff --tag ${{ needs.bump-version.outputs.tag }} --latest --strip all -o /tmp/release-notes.md
+
       - name: Download zip artifact
         uses: actions/download-artifact@v4
         with:
@@ -146,7 +198,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.bump-version.outputs.tag }}
-          generate_release_notes: true
+          body_path: /tmp/release-notes.md
           files: resumorph-extension-${{ needs.bump-version.outputs.tag }}.zip
 
   # Self-contained badge (a plain file in the repo, not a live external image)
@@ -155,6 +207,7 @@ jobs:
   update-version-badge:
     name: Update version badge
     needs: [bump-version, publish-release]
+    if: needs.bump-version.outputs.released == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

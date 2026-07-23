@@ -1,6 +1,6 @@
 ---
 name: backend-verifier
-description: Use after backend (server/app) changes to run the full local preflight — ruff, mypy, deptry, pytest with coverage — and get back a compact pass/fail report. There is no backend CI, so this is the only check that will ever catch a regression before the user notices. Run it proactively after any non-trivial edit under server/app, not just when asked.
+description: Use after backend (server/app) changes to run the full local preflight — ruff, mypy, deptry, pytest with coverage — and get back a compact pass/fail report. `server-ci.yml` runs this same gate in CI on push/PR touching server/**, but that's minutes away and after the fact — this local run is what actually catches a regression before the user notices. Run it proactively after any non-trivial edit under server/app, not just when asked.
 tools: Bash, Read
 model: sonnet
 ---

@@ -1,231 +1,178 @@
 # 📄 ResuMorph
 
-[![Release](.github/badges/version.svg)](https://github.com/hannibalevit/resume-tailor/releases)
+[![Release](.github/badges/version.svg)](https://github.com/hannibalevit/resumorph/releases)
 [![Backend coverage](.github/badges/coverage.svg)](.github/workflows/server-ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> A Chrome Side Panel extension that tailors your resume to any job posting — privately, locally, on your machine.
+> Tailor your resume and cover letter to any job posting, and answer application-form
+> questions, using an LLM key you control — with your data never leaving your machine
+> except for the LLM call itself.
 
-Paste your base resume once. Open any job page, click **Scan this page**, and get a tailored `.docx` resume or cover letter in seconds. All data stays on your machine; only the LLM API call leaves it.
-
----
-
-## Table of Contents
-
-- [How it works](#how-it-works)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-  - [Step 1 — Start the backend](#step-1--start-the-backend)
-  - [Step 2 — Load the extension in Chrome](#step-2--load-the-extension-in-chrome)
-  - [Step 3 — Configure an LLM provider](#step-3--configure-an-llm-provider)
-- [Using the extension](#using-the-extension)
-- [Useful commands](#useful-commands)
-- [Rebuilding the extension from source](#rebuilding-the-extension-from-source)
-- [Project structure](#project-structure)
-- [Troubleshooting](#troubleshooting)
+![ResuMorph preview](./.github/resumorph-preview.gif)
 
 ---
 
-## How it works
+## The problem
 
-```
-Job page  ──[Scan]──▶  Chrome Extension  ──[POST]──▶  Local FastAPI server
-                                                              │
-                                                    ┌─────────┴─────────┐
-                                                    │  SQLite database  │
-                                                    │  (your data only) │
-                                                    └─────────┬─────────┘
-                                                              │
-                                                    ┌─────────▼─────────┐
-                                                    │   LLM API call    │
-                                                    │  (OpenAI/Gemini/  │
-                                                    │   Claude)         │
-                                                    └───────────────────┘
-                                                              │
-                              ◀──────[.docx resume / cover letter]──────┘
-```
+Tailoring a resume for every job posting — rephrasing bullets to match the listing's
+language, writing a fresh cover letter, then retyping the same "why do you want to work
+here" answer into yet another application form — is repetitive manual work that most
+people either skip or do badly under time pressure. ResuMorph automates that per-vacancy
+tailoring loop: scan the posting, generate a tailored resume and cover letter, and draft
+answers for application-form fields, without sending your resume or job data to a
+third-party service that isn't the LLM provider you already chose to trust.
 
-The extension never reads your pages automatically — it only scans after you click **Scan this page**. Form fields are only assisted when you click the **AI** button on that specific field.
+## What makes this different
 
----
+- **Bring your own LLM key.** You supply an OpenAI, Anthropic (Claude), or Google Gemini
+  API key. It's your key, your billing, your data — nothing is proxied through a
+  project-run server.
+- **Local-first, by construction.** There is no ResuMorph server. You run the backend
+  yourself in Docker on `localhost`; the only request that ever leaves your machine is
+  your own backend calling the LLM provider you configured, with your own credentials.
+- **Fully open-source (Apache-2.0).** The extension and backend are both auditable in
+  this repository — nothing runs that you can't read.
 
-## Prerequisites
+## Features
 
-| Requirement | Notes |
-|---|---|
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | macOS, Windows, or Linux |
-| Google Chrome | or any Chromium-based browser (Edge, Arc, Brave) |
-| An LLM API key | OpenAI, Google Gemini, or Anthropic Claude — any one is enough |
+- **Scan a job posting** — click "Scan this page" on a job listing (LinkedIn, Greenhouse,
+  Lever, Ashby, Indeed, SmartRecruiters, Workable, or most other job pages) to extract
+  its requirements and keywords.
+- **Generate a tailored resume** — produces a `.docx` resume rewritten against that
+  specific posting.
+- **Generate a cover letter** — built from the same scanned posting and your latest
+  tailored resume.
+- **Fill application forms faster** — an inline **AI** button on non-sensitive text
+  fields drafts an answer you can preview, then insert, copy, or cancel.
+- **History** — past scanned vacancies and every generated artifact (resumes, cover
+  letters, field answers) are kept locally so you can revisit or regenerate them.
 
----
+## Project status
 
-## Quick Start
+**Pre-release.** ResuMorph is not published on any extension store yet — it's currently
+installed only as an unpacked extension via Chrome's Developer mode, from the pre-built
+`extension/dist/` folder in this repository. Today it targets Chrome/Chromium (Manifest
+V3) only; Firefox and Safari support are not implemented (no build target, packaging, or
+store listing exists for either). Chrome Web Store publication is planned but not done —
+treat this as a developer-facing preview, not a polished install-and-forget product.
 
-### Step 1 — Start the backend
+## Quick start
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) and
+Google Chrome (or another Chromium-based browser).
+
+1. **Start the backend**
+
+   ```bash
+   git clone git@github.com:hannibalevit/resumorph.git
+   cd resumorph
+   make up
+   ```
+
+   This builds the image, generates a `MASTER_ENCRYPTION_KEY` into the Docker volume on
+   first run, and serves the API at `http://localhost:8000`. Verify it's up:
+
+   ```bash
+   curl http://localhost:8000/health
+   ```
+
+   You don't need to set an LLM API key yet — that happens in the extension's Settings
+   panel in the next step. (If you'd rather run the backend outside Docker for
+   development, see [CONTRIBUTING.md](CONTRIBUTING.md) for the `uv sync` + `.env` flow,
+   which does require setting `MASTER_ENCRYPTION_KEY` and at least one LLM provider key
+   by hand.)
+
+2. **Load the extension in Chrome**
+
+   - Open `chrome://extensions`
+   - Enable **Developer mode**
+   - Click **Load unpacked**
+   - Select the `extension/dist` folder from this repository
+
+3. **Configure an LLM provider**
+
+   Open the side panel → **Settings** → enter an API key:
+
+   | Provider | Recommended model |
+   |---|---|
+   | **OpenAI** | `gpt-5.4-mini` |
+   | **Anthropic Claude** | `claude-sonnet-5` |
+   | **Google Gemini** | `gemini-3.6-flash` |
+
+   → **Test connection** → **Set as Default**. The key is Fernet-encrypted before it's
+   stored; only a masked preview is ever sent back to the extension.
+
+## Architecture
+
+ResuMorph is two independent projects that ship together. The **extension**
+(`extension/`) is a Chrome MV3 extension built with Vite and React — a side panel UI plus
+a content script that scans pages and assists form fields, only on explicit user action.
+It talks over HTTP to the **backend** (`server/`), a local FastAPI service backed by
+SQLite, which holds your resume, scanned job sessions, and generated artifacts, and
+proxies generation requests to whichever **LLM provider** (OpenAI, Gemini, or Claude) you
+configured, using your own API key. No other service sits in that path. See
+[CLAUDE.md](CLAUDE.md) (and its condensed counterpart [AGENTS.md](AGENTS.md)) for the
+full architecture breakdown, and [CONTRIBUTING.md](CONTRIBUTING.md) for a from-source
+dev setup.
+
+## Privacy & Security
+
+Your resume text, scanned job postings, and generated documents live in a local SQLite
+database inside the Docker volume — nowhere else. Provider API keys are encrypted at
+rest with Fernet (`server/app/security.py`); only a masked preview ever reaches the
+extension. The only data that leaves your machine is what your own backend sends
+directly to the LLM provider you configured, using your own key.
+
+- [PRIVACY.md](PRIVACY.md) — exactly what's stored, where, and what Chrome permissions
+  are used for.
+- [SECURITY.md](SECURITY.md) — threat model, scope, and known design tradeoffs.
+
+## Roadmap & known limitations
+
+**Known limitations today:**
+
+- Chrome/Chromium only — no Firefox or Safari build.
+- Unpacked extension install only — no Chrome Web Store (or other store) listing yet.
+- The backend has no authentication; anything that can reach `http://localhost:8000` can
+  read and write all local data. This is an intentional single-user local-trust design
+  (see [SECURITY.md](SECURITY.md)), not an oversight.
+- No cloud backup or sync — losing the Docker volume without a backup loses your data.
+
+**Roadmap:** not yet documented publicly — track planned work via
+[GitHub Issues](https://github.com/hannibalevit/resumorph/issues) and
+[Releases](https://github.com/hannibalevit/resumorph/releases).
+
+## Contributing
+
+Contributions are welcome — bug reports, feature requests, new job-site extractors, new
+LLM providers, or docs fixes. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup,
+coding conventions, and the PR checklist, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+for community guidelines.
+
+## AI-assisted development
+
+Parts of this codebase are developed with AI coding assistants — Claude Code
+and OpenAI Codex, using the checked-in `CLAUDE.md` / `AGENTS.md` instructions
+and the skills under `.claude/skills/` (see
+[CONTRIBUTING.md](CONTRIBUTING.md#using-claude-code-and-other-ai-coding-agents-in-this-repo)
+for what that setup looks like). Commits where Claude Code generated the code
+carry a `Co-Authored-By: Claude` trailer in the commit message footer — if
+that matters for your audit, search for it directly rather than by author
+(the trailer is part of the message body, not the Git author field):
 
 ```bash
-git clone <repo-url>
-cd resume-tailor-extension
-make up
+git log --grep 'Co-Authored-By: Claude'
 ```
 
-<details>
-<summary>Don't have <code>make</code>? Use Docker directly</summary>
+## License
 
-```bash
-docker compose up -d --build
-```
+Apache License 2.0 — see [LICENSE](LICENSE).
 
-</details>
+## Support / questions
 
-On first run, Docker will automatically:
-
-- ✅ Build the Python image and install all dependencies
-- ✅ Generate a secure encryption key (`MASTER_ENCRYPTION_KEY`) and store it in a persistent volume
-- ✅ Create the SQLite database (your data survives container restarts and updates)
-- ✅ Expose the API at **http://localhost:8000**
-
-Verify the server is ready:
-
-```bash
-curl http://localhost:8000/health
-# → {"status":"ok"}
-```
-
-> 💡 **You don't need to set an API key now.** You'll enter it in the extension's Settings panel after loading it in Chrome.
-
----
-
-### Step 2 — Load the extension in Chrome
-
-The pre-built extension is included in `extension/dist/` — no Node.js required.
-
-1. Open **`chrome://extensions`** in Chrome
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked**
-4. Select the **`extension/dist`** folder from this repository
-
-The 📄 ResuMorph icon will appear in your Chrome toolbar. Click it to open the Side Panel.
-
----
-
-### Step 3 — Configure an LLM provider
-
-Open the Side Panel → click **Settings** → enter an API key:
-
-| Provider | Recommended model | Get a key |
-|---|---|---|
-| **OpenAI** | `gpt-4.1-mini` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| **Google Gemini** | `gemini-2.5-flash-lite` | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
-| **Anthropic Claude** | `claude-3-5-haiku-latest` | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
-
-Click **Test connection** → **Set as Default**. The key is encrypted and stored in your local database — it never leaves your machine in plaintext.
-
-> ⚠️ Without a key, the extension uses a basic local fallback that is much less accurate.
-
----
-
-## Using the extension
-
-1. **Upload your resume** — open the Side Panel and upload a `.pdf`, `.docx`, `.txt`, or `.md` file
-2. **Navigate to a job posting** — LinkedIn, Greenhouse, Lever, Indeed, or any page
-3. **Scan the page** — click **Scan this page**; a job tab appears with extracted requirements and keywords
-4. **Generate documents** — click **Generate resume** or **Generate cover letter** and save the `.docx`
-5. **Fill forms faster** — on application forms, non-sensitive text fields get an **AI** button; click it to preview a draft, then **Insert**, **Copy**, or **Cancel**
-
-> 🔒 The extension never auto-submits forms, clicks Apply/Next, or touches password, payment, ID, or demographic fields.
-
----
-
-## Useful commands
-
-| Command | Description |
-|---|---|
-| `make up` | Build image and start the server in the background |
-| `make down` | Stop the server |
-| `make restart` | Restart the server |
-| `make logs` | Stream live server logs |
-| `make build-extension` | Rebuild extension from source (requires Node.js 18+) |
-| `make clean` | ⚠️ Stop server and permanently delete all local data |
-
----
-
-## Rebuilding the extension from source
-
-Only needed if you modify the extension code:
-
-```bash
-make build-extension
-```
-
-Then reload the extension: go to `chrome://extensions` and click the **↺** reload icon next to ResuMorph.
-
----
-
-## Project structure
-
-```
-resumorph/
-├── extension/
-│   ├── dist/               ← pre-built extension — load this in Chrome
-│   └── src/
-│       ├── background/     ← service worker, side-panel activation
-│       ├── content/        ← page scanner, form detector, inline AI button
-│       └── sidepanel/      ← React UI
-├── server/
-│   ├── app/                ← FastAPI application
-│   │   ├── main.py
-│   │   ├── models.py
-│   │   ├── security.py
-│   │   └── ...
-│   ├── Dockerfile
-│   ├── entrypoint.sh       ← auto-generates encryption key on first run
-│   ├── pyproject.toml      ← dependencies (managed with uv)
-│   └── uv.lock
-├── docker-compose.yml
-├── Makefile
-└── README.md
-```
-
----
-
-## Troubleshooting
-
-**Extension shows "Server offline"**
-
-```bash
-curl http://localhost:8000/health
-make logs
-```
-
-Make sure Docker Desktop is running and the container started without errors.
-
----
-
-**"Load unpacked" button is greyed out**
-
-Enable **Developer mode** in `chrome://extensions` first (toggle in the top-right corner).
-
----
-
-**After a Chrome update, the extension is disabled**
-
-Chrome sometimes disables unpacked extensions after updates. Go to `chrome://extensions` and click **Enable** next to ResuMorph.
-
----
-
-**Job scan returns generic or inaccurate results**
-
-Check that you have a working LLM provider set as Default in **Settings**. Without a configured key, the extension falls back to a basic local extractor.
-
----
-
-**I want to reset everything and start fresh**
-
-```bash
-make clean
-```
-
-This stops the server and deletes the Docker volume (database + encryption key). The next `make up` starts completely fresh.
+- **Bugs and feature requests:** [GitHub Issues](https://github.com/hannibalevit/resumorph/issues)
+- **Security vulnerabilities:** please don't file a public issue — see
+  [SECURITY.md](SECURITY.md) for private reporting instructions.
 
 ---
 

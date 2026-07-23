@@ -4,7 +4,6 @@ from io import BytesIO
 
 import app.services.generation as generation
 import pytest
-from app.llm.claude_cli import CLI_MODEL_CATALOG
 from app.models import (
     GeneratedArtifactModel,
     JobSessionModel,
@@ -533,14 +532,9 @@ def test_test_provider_requires_key(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "LLM_PROVIDER_NOT_CONFIGURED"
 
 
-def test_test_provider_claude_oauth_without_explicit_model_uses_cli_catalog(
+def test_test_provider_claude_without_explicit_model_uses_default(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # No model picked in the UI yet and no saved config to fall back to: the
-    # only default available is settings.default_claude_model
-    # ("claude-3-5-haiku-latest"), a plain-API-key alias the `claude` CLI
-    # rejects for an OAuth subscription token — must resolve to the CLI's own
-    # catalog instead.
     captured: dict[str, object] = {}
 
     class CapturingProvider(StubProvider):
@@ -553,11 +547,11 @@ def test_test_provider_claude_oauth_without_explicit_model_uses_cli_catalog(
     monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: CapturingProvider())
     response = client.post(
         "/api/settings/llm-providers/claude/test",
-        json={"apiKey": "sk-ant-oat01-subscription-token-1234567890"},
+        json={"apiKey": "sk-ant-api03-regular-key-1234567890"},
     )
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-    assert captured["model"] == CLI_MODEL_CATALOG[0]
+    assert captured["model"] == "claude-3-5-haiku-latest"
 
 
 # ---------------------------------------------------------------------------

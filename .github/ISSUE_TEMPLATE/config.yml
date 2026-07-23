@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/hannibalevit/resumorph/security/advisories/new
+    about: Please do not file public issues for security vulnerabilities — see SECURITY.md.
+  - name: 💬 Ask a question / discuss an idea first
+    url: https://github.com/hannibalevit/resumorph/issues/new?labels=triage&title=%5BQuestion%5D%3A+
+    about: For anything larger than a small fix, open an issue to discuss the approach before a PR.

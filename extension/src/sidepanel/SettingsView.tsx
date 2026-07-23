@@ -2,16 +2,10 @@ import { ChangeEvent, useEffect, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
 
-const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string; helpText?: string }> = [
+const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string }> = [
   { id: "openai", label: "OpenAI", placeholder: "sk-..." },
   { id: "gemini", label: "Gemini", placeholder: "AIza..." },
-  {
-    id: "claude",
-    label: "Claude",
-    placeholder: "sk-ant-api03-... or sk-ant-oat01-...",
-    helpText:
-      "Paste either a regular Anthropic API key (sk-ant-api03-...) or a Claude Pro/Max subscription OAuth token (sk-ant-oat01-..., generated on your machine with `claude setup-token`). The backend detects which one you pasted automatically.",
-  },
+  { id: "claude", label: "Claude", placeholder: "sk-ant-api03-..." },
 ];
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
@@ -364,11 +358,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <h3>{provider.label}</h3>
           <span className={`provider-connection ${connection.className}`} title={connection.label}><span className="provider-lamp" />{connection.label}</span>
         </div>
-        <small>
-          {providerConfig?.keyMask ?? "No key saved"}
-          {providerConfig?.authMode === "subscription" ? " · Claude subscription (OAuth)" : providerConfig?.authMode === "api_key" ? " · API key" : ""}
-        </small>
-        {provider.helpText && <p className="muted provider-help">{provider.helpText}</p>}
+        <small>{providerConfig?.keyMask ?? "No key saved"}</small>
         <input type="password" placeholder={provider.placeholder} value={keys[provider.id] ?? ""} onChange={(event) => updateKey(provider.id, event.target.value)} />
         {loadingModels[provider.id] ? <p className="muted">Loading available models…</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => void changeModel(provider.id, event.target.value)} disabled={busy !== null}>
           <option value="">Choose model</option>

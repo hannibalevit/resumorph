@@ -2,7 +2,6 @@ from datetime import datetime
 
 import app.services.generation as generation
 import pytest
-from app.llm.claude_cli import CLI_MODEL_CATALOG
 from app.models import GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel
 from app.schemas import JobContext
 from fastapi.testclient import TestClient
@@ -72,30 +71,13 @@ def test_llm_provider_settings_save_list_and_delete(client: TestClient) -> None:
     assert openai_config["isEnabled"] is False
 
 
-def test_claude_provider_auth_mode_reflects_key_format(client: TestClient) -> None:
+def test_claude_provider_settings_save(client: TestClient) -> None:
     saved_api_key = client.post(
         "/api/settings/llm-providers/claude",
         json={"apiKey": "sk-ant-api03-regular-key-1234567890"},
     )
     assert saved_api_key.status_code == 200
-    assert saved_api_key.json()["authMode"] == "api_key"
     assert saved_api_key.json()["defaultModel"] == "claude-3-5-haiku-latest"
-
-    saved_oauth = client.post(
-        "/api/settings/llm-providers/claude",
-        json={"apiKey": "sk-ant-oat01-subscription-token-1234567890"},
-    )
-    assert saved_oauth.status_code == 200
-    assert saved_oauth.json()["authMode"] == "subscription"
-    # An OAuth subscription token can't use plain-API-key model aliases like
-    # "claude-3-5-haiku-latest" — the `claude` CLI only knows its own catalog.
-    assert saved_oauth.json()["defaultModel"] == CLI_MODEL_CATALOG[0]
-
-    settings = client.get("/api/settings/llm-providers")
-    claude_config = next(
-        item for item in settings.json()["providers"] if item["provider"] == "claude"
-    )
-    assert claude_config["authMode"] == "subscription"
 
 
 def test_unsupported_provider_returns_structured_error(client: TestClient) -> None:
