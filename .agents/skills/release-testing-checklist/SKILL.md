@@ -48,7 +48,7 @@ Do not run `make clean` for release validation.
 
 ## Common Failure Modes
 
-- Backend checks are skipped because extension CI exists, even though backend CI may not catch regressions.
+- Backend checks are skipped locally on the assumption that CI will catch them — `server-ci.yml` does run the same gate, but only after a push, which is slower feedback than running it before one.
 - Coverage fails the 85% gate although tests pass.
 - `extension/dist/` changes are mistaken for source changes.
 - Docker data is wiped during validation.

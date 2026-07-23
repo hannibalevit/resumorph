@@ -95,7 +95,7 @@ make build-extension
 - Migrations are additive only through `ALTER TABLE ADD COLUMN`; renames, drops, and type changes require a separate explicit plan.
 - If an API shape is consumed by the extension, update the matching TypeScript type and `api.*` method.
 - Stub LLM calls in tests by patching names imported by `app.services.generation`, not the provider module.
-- Backend CI is not guaranteed to run for this repo. Run local backend verification before finishing backend work.
+- `.github/workflows/server-ci.yml` runs the same ruff/mypy/deptry/pytest gate on every push/PR touching `server/**`. Still run backend verification locally before finishing backend work — CI is a backstop, not a substitute for checking before you push.
 
 ## LLM And Prompt Rules
 
