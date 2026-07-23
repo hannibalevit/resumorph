@@ -9,7 +9,6 @@ from typing import cast
 
 from sqlalchemy.orm import Session
 
-from app.llm.claude_cli import is_oauth_token
 from app.models import (
     GeneratedArtifactModel,
     JobSessionModel,
@@ -26,7 +25,6 @@ from app.schemas import (
     ProviderName,
     ProviderPublicConfig,
 )
-from app.security import SecretEncryptionError, decrypt_secret
 
 
 def base_profile(db: Session) -> UserProfileModel | None:
@@ -101,19 +99,6 @@ def admin_item(session: JobSessionModel) -> AdminJobSessionItem:
     )
 
 
-def provider_auth_mode(provider: str, config: LlmProviderConfigModel | None) -> str | None:
-    """Return "subscription" if the stored Claude secret is an OAuth token,
-    "api_key" otherwise. Always None for non-Claude providers or unset secrets.
-    """
-    if provider != "claude" or config is None:
-        return None
-    try:
-        secret = decrypt_secret(config.encrypted_api_key)
-    except SecretEncryptionError:
-        return None
-    return "subscription" if is_oauth_token(secret) else "api_key"
-
-
 def public_provider_config(
     provider: str, config: LlmProviderConfigModel | None
 ) -> ProviderPublicConfig:
@@ -127,5 +112,4 @@ def public_provider_config(
         lastTestStatus=config.last_test_status if config else "never_tested",
         lastTestError=config.last_test_error if config else None,
         lastTestedAt=config.last_tested_at if config else None,
-        authMode=provider_auth_mode(provider, config),
     )
