@@ -8,7 +8,33 @@
 > questions, using an LLM key you control — with your data never leaving your machine
 > except for the LLM call itself.
 
+<table>
+<tr>
+<td valign="top" width="35%">
+
+### Contents
+
+- [The problem](#the-problem)
+- [What makes this different](#what-makes-this-different)
+- [Features](#features)
+- [Project status](#project-status)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Privacy & Security](#privacy--security)
+- [Roadmap & known limitations](#roadmap--known-limitations)
+- [Contributing](#contributing)
+- [AI-assisted development](#ai-assisted-development)
+- [License](#license)
+- [Support / questions](#support--questions)
+
+</td>
+<td valign="top" width="65%">
+
 ![ResuMorph preview](./.github/resumorph-preview.gif)
+
+</td>
+</tr>
+</table>
 
 ---
 
