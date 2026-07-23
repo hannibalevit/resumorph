@@ -23,7 +23,7 @@ Add deps with `uv add <pkg>` (runtime) or `uv add --dev <pkg>` (test); both upda
 
 Lint/format/type-check the backend with `uv run ruff check .`, `uv run ruff format .`, `uv run mypy`, and `uv run deptry .` (all configured in `server/pyproject.toml`; they must stay green). Ruff owns line length (100) — don't hand-wrap; let `ruff format` do it. When mypy needs a `str`→`Literal` narrowing at a validated boundary use `typing.cast`, and when a runtime-only dependency (e.g. `uvicorn`, `python-multipart`) trips deptry's DEP002, add it to `[tool.deptry.per_rule_ignores]` rather than importing it.
 
-`.github/workflows/server-ci.yml` runs this same gate (ruff check/format, mypy, deptry, then pytest in an isolated Docker container, then a Docker image smoke test) on every push/PR touching `server/**`, separately from `.github/workflows/extension-ci.yml` (which only covers `extension/`). Still run `ruff check`, `mypy`, `deptry`, and `pytest` locally before considering backend work done — CI is a backstop, not a substitute for checking before you push.
+`.github/workflows/server-ci.yml` runs this same gate (ruff check/format, mypy, deptry, then pytest in an isolated Docker container, then a Docker image smoke test) on every push, separately from `.github/workflows/extension-ci.yml`. Both run unconditionally (no `paths:` filter) rather than being scoped to `server/**`/`extension/**` — the branch ruleset on `main` requires all 5 of their jobs as status checks, and a path-filtered workflow that never runs leaves a required check stuck pending forever. Still run `ruff check`, `mypy`, `deptry`, and `pytest` locally before considering backend work done — CI is a backstop, not a substitute for checking before you push.
 
 ### Docker (run from repo root)
 ```bash
@@ -43,7 +43,7 @@ npm run dev            # vite dev mode
 ```
 Or from repo root: `make build-extension`. Load `extension/dist` as an unpacked extension via `chrome://extensions`. Reload the extension after every rebuild.
 
-`npm test` runs Vitest (`extension/tests/`, jsdom env) — there is no separate lint script, but `npm run build` runs `tsc --noEmit` (strict mode, `noUnusedLocals`/`noUnusedParameters` on) before bundling, so type errors and unused symbols fail the build too. CI (`.github/workflows/extension-ci.yml`) runs `npm test` then `npm run build` on every push/PR touching `extension/**`.
+`npm test` runs Vitest (`extension/tests/`, jsdom env) — there is no separate lint script, but `npm run build` runs `tsc --noEmit` (strict mode, `noUnusedLocals`/`noUnusedParameters` on) before bundling, so type errors and unused symbols fail the build too. CI (`.github/workflows/extension-ci.yml`) runs `npm test` then `npm run build` on every push (no path filter — see the server-ci note above for why).
 
 ## Architecture
 
