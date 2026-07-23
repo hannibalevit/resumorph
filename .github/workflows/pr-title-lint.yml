@@ -1,0 +1,33 @@
+name: PR Title Lint
+
+# Enforces Conventional Commits on PR titles. PRs in this repo are
+# squash-merged, so the PR title becomes the commit message on main - and
+# that commit message is what auto-release.yml + cliff.toml (git-cliff)
+# parses to generate CHANGELOG.md and pick the next version bump. Runs
+# alongside server-ci.yml / extension-ci.yml, not in place of them.
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            chore
+            ci
+            test
+          requireScope: false

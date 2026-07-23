@@ -1,0 +1,72 @@
+# git-cliff configuration — https://git-cliff.org/docs/configuration
+#
+# CHANGELOG.md is generated from this config by .github/workflows/auto-release.yml
+# on every release. Do not hand-edit CHANGELOG.md; change this file instead
+# (see CONTRIBUTING.md).
+#
+# [changelog].header ends with a literal "## [Unreleased]" line. `git-cliff
+# --prepend CHANGELOG.md` recognizes an existing header by matching it
+# byte-for-byte against this rendered header and strips it before writing, so
+# each new release lands directly under "## [Unreleased]" instead of above a
+# duplicated header. Keep this header's exact text/whitespace in sync with
+# CHANGELOG.md's current header if either ever changes by hand.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim }}
+    {% for commit in commits %}
+        - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+            {{ commit.message | upper_first }} \
+            ([`{{ commit.id | truncate(length=7, end="") }}`](<REPO>/commit/{{ commit.id }}))
+    {% endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+postprocessors = [
+    { pattern = '<REPO>', replace = "https://github.com/hannibalevit/resumorph" },
+]
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+require_conventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = true
+tag_pattern = "v[0-9]*"
+sort_commits = "oldest"
+commit_parsers = [
+    { message = "^\\w+(\\(.*\\))?!:", group = "Breaking Changes" },
+    { footer = "^BREAKING CHANGE", group = "Breaking Changes" },
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^docs?", group = "Documentation" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^test", skip = true },
+]
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = true
