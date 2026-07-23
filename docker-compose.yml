@@ -4,12 +4,23 @@ services:
   server:
     build: ./server
     ports:
-      - "8000:8000"
+      # Bound to loopback only, not "8000:8000" (which Docker publishes on
+      # every host interface) — secure by default, since this API has no
+      # authentication of its own (see SECURITY.md's threat model). If you
+      # genuinely need LAN access (e.g. running the backend on a separate
+      # machine from the browser), override this in your own compose file
+      # rather than loosening the shipped default.
+      - "127.0.0.1:8000:8000"
     volumes:
       - data:/data
     environment:
       DATABASE_URL: sqlite:////data/resumorph.db
-      ALLOWED_ORIGINS: "*"
+      # The extension's chrome-extension://<id> origin is allowed independently
+      # via the regex in app/main.py's CORSMiddleware, regardless of this
+      # value — this only needs to cover browser-based dev (e.g. the side
+      # panel's Vite dev server), so it matches app/config.py's own default
+      # rather than opening CORS to "*".
+      ALLOWED_ORIGINS: "http://localhost:5173"
       # Optional: set API keys here, or configure them later in the extension Settings UI.
       # OPENAI_API_KEY: ""
       # ANTHROPIC_API_KEY: ""
