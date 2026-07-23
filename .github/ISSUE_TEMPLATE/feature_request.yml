@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest an idea, a new job-site extractor, or an LLM provider addition.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Extension (side panel / content script / service worker)
+        - Backend (FastAPI server)
+        - New job-site extractor
+        - New LLM provider or task
+        - Docker / infrastructure
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >
+        What's missing or annoying today? If this is a new job-site
+        extractor, link an example (anonymized/public) job posting URL from
+        that site.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false
