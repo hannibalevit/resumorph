@@ -1,10 +1,6 @@
 name: Extension CI
 
-on:
-  push:
-    paths:
-      - "extension/**"
-      - ".github/workflows/extension-ci.yml"
+on: push
 
 concurrency:
   group: extension-ci-${{ github.workflow }}-${{ github.ref }}

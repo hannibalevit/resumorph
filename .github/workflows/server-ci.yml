@@ -1,11 +1,6 @@
 name: Server CI
 
-on:
-  push:
-    paths:
-      - "server/**"
-      - "docker-compose.yml"
-      - ".github/workflows/server-ci.yml"
+on: push
 
 concurrency:
   group: server-ci-${{ github.workflow }}-${{ github.ref }}
