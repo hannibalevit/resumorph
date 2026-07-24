@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-24
+
+### Features
+
+- Prompt improvements (#19) ([`b7fdbfd`](https://github.com/hannibalevit/resumorph/commit/b7fdbfd11f1be5ce39b74830a4fc7d129c4bdeb2))
+
 ## [1.0.2] - 2026-07-23
 
 ### Bug Fixes
