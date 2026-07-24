@@ -16,6 +16,11 @@ class ClaudeProvider(LlmProvider):
             model=model,
             max_tokens=max_tokens,
             system=system_prompt,
+            # Newer models (e.g. claude-sonnet-5) default to adaptive thinking when this
+            # is omitted, which can consume the whole max_tokens budget on reasoning and
+            # leave no room for the actual response. This provider never reads thinking
+            # blocks, so keep it off.
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": user_prompt}],
         )
         return "".join(block.text for block in response.content if hasattr(block, "text")).strip()

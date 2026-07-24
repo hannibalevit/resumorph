@@ -4,6 +4,21 @@ from openai import AsyncOpenAI
 
 from app.llm.base import LlmProvider, parse_json_response
 
+# o-series and gpt-5+ models bill hidden reasoning tokens against max_output_tokens
+# before any visible text is written; a modest budget can be consumed entirely by
+# reasoning, leaving an empty response. The `reasoning` param is rejected outright
+# on non-reasoning models, so it's only added when the model needs it. "low" is used
+# rather than "minimal"/"none" because not every model in this family accepts those
+# (e.g. gpt-5.6-sol 400s on "minimal": "Supported values are: none, low, medium,
+# high, xhigh") — "low" is the one value accepted across o1/o3/o4/gpt-5*.
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+
+
+def _reasoning_kwargs(model: str) -> dict[str, Any]:
+    if model.startswith(_REASONING_MODEL_PREFIXES):
+        return {"reasoning": {"effort": "low"}}
+    return {}
+
 
 class OpenAiProvider(LlmProvider):
     provider_name = "openai"
@@ -12,13 +27,14 @@ class OpenAiProvider(LlmProvider):
         self, api_key: str, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000
     ) -> str:
         client = AsyncOpenAI(api_key=api_key)
-        response = await client.responses.create(
+        response = await client.responses.create(  # type: ignore[call-overload]
             model=model,
             input=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             max_output_tokens=max_tokens,
+            **_reasoning_kwargs(model),
         )
         return response.output_text.strip()
 
@@ -59,6 +75,7 @@ class OpenAiProvider(LlmProvider):
                 "schema": response_schema,
                 "strict": False,
             }
+        reasoning_kwargs = _reasoning_kwargs(model)
         # The Responses API overloads type `input`/`text` as TypedDicts; plain dicts are
         # accepted at runtime but don't match the strict overload signatures.
         response = await client.responses.create(  # type: ignore[call-overload]
@@ -69,6 +86,7 @@ class OpenAiProvider(LlmProvider):
             ],
             max_output_tokens=max_tokens,
             text={"format": text_format},
+            **reasoning_kwargs,
         )
         text = response.output_text.strip()
         if text:
@@ -87,6 +105,7 @@ class OpenAiProvider(LlmProvider):
             ],
             max_output_tokens=max_tokens,
             text={"format": text_format},
+            **reasoning_kwargs,
         )
         return parse_json_response(retry.output_text.strip())
 
