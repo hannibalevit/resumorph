@@ -59,10 +59,12 @@ class _FakeOpenAIResponses:
     def __init__(self, outputs: list[str]) -> None:
         self._outputs = outputs
         self.calls = 0
+        self.received_kwargs: list[dict[str, object]] = []
 
     async def create(self, **kwargs: object):
         value = self._outputs[min(self.calls, len(self._outputs) - 1)]
         self.calls += 1
+        self.received_kwargs.append(kwargs)
         return SimpleNamespace(output_text=value)
 
 
@@ -119,6 +121,22 @@ async def test_openai_test_connection(monkeypatch) -> None:
     _patch_openai(monkeypatch, outputs=["ok"])
     result = await OpenAiProvider().test_connection("k")
     assert result == {"rawTextPreview": "ok"}
+
+
+async def test_openai_generate_text_constrains_reasoning_effort_for_reasoning_models(
+    monkeypatch,
+) -> None:
+    responses = _patch_openai(monkeypatch, outputs=["ok"])
+    await OpenAiProvider().generate_text("k", "gpt-5.6-sol", "sys", "user")
+    assert responses.received_kwargs[0]["reasoning"] == {"effort": "low"}
+
+
+async def test_openai_generate_text_omits_reasoning_effort_for_non_reasoning_models(
+    monkeypatch,
+) -> None:
+    responses = _patch_openai(monkeypatch, outputs=["ok"])
+    await OpenAiProvider().generate_text("k", "gpt-4.1-mini", "sys", "user")
+    assert "reasoning" not in responses.received_kwargs[0]
 
 
 # ---------------------------------------------------------------------------
