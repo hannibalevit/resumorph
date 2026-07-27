@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-27
+
+### Bug Fixes
+
+- Inline assistant in iframes (#21) ([`83a3e04`](https://github.com/hannibalevit/resumorph/commit/83a3e04ea075979c8bff8039d138d381560994fe))
+
 ## [1.1.0] - 2026-07-24
 
 ### Features
