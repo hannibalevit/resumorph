@@ -100,22 +100,23 @@ export function mountInlineAssistant(): void {
   const buttons = new Map<HTMLElement, HTMLButtonElement>();
   const reposition = () => buttons.forEach((button, element) => positionButton(element, button));
   const resizeObserver = new ResizeObserver(reposition);
-  const visibilityObserver = new IntersectionObserver((entries) => entries.forEach((entry) => {
+  // `position: fixed` only tracks the real browser viewport in the top frame; inside a nested
+  // frame (e.g. a Greenhouse application form embedded in an iframe) it's anchored to that
+  // frame's own layout box instead, so a field scrolling out of view is already clipped by the
+  // browser with no JS help needed - and IntersectionObserver's ratio precision is unreliable
+  // across a cross-origin frame boundary in the first place, so only use it in the top frame,
+  // where its one job is to stop the icon staying pinned to a screen edge while its field scrolls away.
+  const visibilityObserver = window.top === window ? new IntersectionObserver((entries) => entries.forEach((entry) => {
     const button = buttons.get(entry.target as HTMLElement);
     if (!button) return;
-    // Do not leave an icon pinned to a viewport edge while its field scrolls away. A near-100%
-    // threshold is unreliable across a cross-origin iframe boundary (e.g. Greenhouse job-board
-    // embeds): browsers deliberately reduce intersectionRatio precision for cross-origin targets
-    // as an anti-fingerprinting measure, so exact ratios like 0.99 rarely get reported even when
-    // the field is fully visible, and the button ends up permanently hidden right after it's shown.
     if (!entry.isIntersecting || entry.intersectionRatio < 0.5) button.hidden = true;
     else positionButton(entry.target as HTMLElement, button);
-  }), { threshold: [0, 0.5, 1] });
+  }), { threshold: [0, 0.5, 1] }) : null;
 
   const clearButtons = () => {
     buttons.forEach((button, element) => {
       resizeObserver.unobserve(element);
-      visibilityObserver.unobserve(element);
+      visibilityObserver?.unobserve(element);
       button.remove();
     });
     buttons.clear();
@@ -141,7 +142,7 @@ export function mountInlineAssistant(): void {
       document.body.append(button);
       buttons.set(element, button);
       resizeObserver.observe(element);
-      visibilityObserver.observe(element);
+      visibilityObserver?.observe(element);
       positionButton(element, button);
     });
   };
