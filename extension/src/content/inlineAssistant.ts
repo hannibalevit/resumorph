@@ -103,10 +103,14 @@ export function mountInlineAssistant(): void {
   const visibilityObserver = new IntersectionObserver((entries) => entries.forEach((entry) => {
     const button = buttons.get(entry.target as HTMLElement);
     if (!button) return;
-    // Do not leave an icon pinned to a viewport edge while its field scrolls away.
-    if (!entry.isIntersecting || entry.intersectionRatio < 0.99) button.hidden = true;
+    // Do not leave an icon pinned to a viewport edge while its field scrolls away. A near-100%
+    // threshold is unreliable across a cross-origin iframe boundary (e.g. Greenhouse job-board
+    // embeds): browsers deliberately reduce intersectionRatio precision for cross-origin targets
+    // as an anti-fingerprinting measure, so exact ratios like 0.99 rarely get reported even when
+    // the field is fully visible, and the button ends up permanently hidden right after it's shown.
+    if (!entry.isIntersecting || entry.intersectionRatio < 0.5) button.hidden = true;
     else positionButton(entry.target as HTMLElement, button);
-  }), { threshold: [0, 0.99, 1] });
+  }), { threshold: [0, 0.5, 1] });
 
   const clearButtons = () => {
     buttons.forEach((button, element) => {
