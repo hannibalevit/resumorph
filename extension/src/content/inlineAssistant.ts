@@ -149,7 +149,11 @@ function mountInlineAssistantAfterSettle(): void {
     detectFormFields().forEach((field) => {
       const element = findField(field.fieldId);
       const isTextarea = element instanceof HTMLTextAreaElement;
-      if (field.isSensitive || (!field.isLikelyApplicationQuestion && !isTextarea) || document.querySelector(`button[data-field-id="${CSS.escape(field.fieldId)}"]`)) return;
+      // Autocomplete widgets (react-select and similar) expose role="combobox": the value is only
+      // committed by picking an option from a dropdown, not by writing text into the input, so we
+      // can't reliably fill them and shouldn't offer a button that looks like it will.
+      const isComboBox = element?.getAttribute("role") === "combobox";
+      if (field.isSensitive || isComboBox || (!field.isLikelyApplicationQuestion && !isTextarea) || document.querySelector(`button[data-field-id="${CSS.escape(field.fieldId)}"]`)) return;
       if (!element) return;
       const button = document.createElement("button");
       button.type = "button";
