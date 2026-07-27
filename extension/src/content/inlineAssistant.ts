@@ -29,6 +29,24 @@ function removeAllInlineButtons(): void {
   document.querySelectorAll<HTMLButtonElement>(`.${BUTTON_CLASS}`).forEach((element) => element.remove());
 }
 
+// Some job-board embeds (e.g. Greenhouse's Remix-based application form) hydrate their whole
+// `document` client-side rather than a single mount div. If we insert anything before that
+// finishes, React sees DOM it didn't render, treats it as a hydration mismatch, and discards +
+// rebuilds the affected subtree - wiping out anything we just added. Wait for mutations to go
+// quiet before touching the DOM the first time, so we land after hydration instead of during it.
+function whenDomSettled(callback: () => void, quietMs = 400, maxWaitMs = 4000): void {
+  const deadline = Date.now() + maxWaitMs;
+  let timer: number;
+  const finish = () => { observer.disconnect(); clearTimeout(timer); callback(); };
+  const observer = new MutationObserver(() => {
+    if (Date.now() >= deadline) { finish(); return; }
+    clearTimeout(timer);
+    timer = window.setTimeout(finish, quietMs);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  timer = window.setTimeout(finish, quietMs);
+}
+
 function styles(): void {
   if (document.getElementById("resumorph-ai-styles")) return;
   const style = document.createElement("style");
@@ -94,6 +112,10 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
 }
 
 export function mountInlineAssistant(): void {
+  whenDomSettled(() => mountInlineAssistantAfterSettle());
+}
+
+function mountInlineAssistantAfterSettle(): void {
   styles();
   removeAllInlineButtons();
   let enabled = false;
