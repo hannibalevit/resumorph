@@ -29,6 +29,24 @@ function removeAllInlineButtons(): void {
   document.querySelectorAll<HTMLButtonElement>(`.${BUTTON_CLASS}`).forEach((element) => element.remove());
 }
 
+// Some job-board embeds (e.g. Greenhouse's Remix-based application form) hydrate their whole
+// `document` client-side rather than a single mount div. If we insert anything before that
+// finishes, React sees DOM it didn't render, treats it as a hydration mismatch, and discards +
+// rebuilds the affected subtree - wiping out anything we just added. Wait for mutations to go
+// quiet before touching the DOM the first time, so we land after hydration instead of during it.
+function whenDomSettled(callback: () => void, quietMs = 400, maxWaitMs = 4000): void {
+  const deadline = Date.now() + maxWaitMs;
+  let timer: number;
+  const finish = () => { observer.disconnect(); clearTimeout(timer); callback(); };
+  const observer = new MutationObserver(() => {
+    if (Date.now() >= deadline) { finish(); return; }
+    clearTimeout(timer);
+    timer = window.setTimeout(finish, quietMs);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  timer = window.setTimeout(finish, quietMs);
+}
+
 function styles(): void {
   if (document.getElementById("resumorph-ai-styles")) return;
   const style = document.createElement("style");
@@ -94,24 +112,33 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
 }
 
 export function mountInlineAssistant(): void {
+  whenDomSettled(() => mountInlineAssistantAfterSettle());
+}
+
+function mountInlineAssistantAfterSettle(): void {
   styles();
   removeAllInlineButtons();
   let enabled = false;
   const buttons = new Map<HTMLElement, HTMLButtonElement>();
   const reposition = () => buttons.forEach((button, element) => positionButton(element, button));
   const resizeObserver = new ResizeObserver(reposition);
-  const visibilityObserver = new IntersectionObserver((entries) => entries.forEach((entry) => {
+  // `position: fixed` only tracks the real browser viewport in the top frame; inside a nested
+  // frame (e.g. a Greenhouse application form embedded in an iframe) it's anchored to that
+  // frame's own layout box instead, so a field scrolling out of view is already clipped by the
+  // browser with no JS help needed - and IntersectionObserver's ratio precision is unreliable
+  // across a cross-origin frame boundary in the first place, so only use it in the top frame,
+  // where its one job is to stop the icon staying pinned to a screen edge while its field scrolls away.
+  const visibilityObserver = window.top === window ? new IntersectionObserver((entries) => entries.forEach((entry) => {
     const button = buttons.get(entry.target as HTMLElement);
     if (!button) return;
-    // Do not leave an icon pinned to a viewport edge while its field scrolls away.
-    if (!entry.isIntersecting || entry.intersectionRatio < 0.99) button.hidden = true;
+    if (!entry.isIntersecting || entry.intersectionRatio < 0.5) button.hidden = true;
     else positionButton(entry.target as HTMLElement, button);
-  }), { threshold: [0, 0.99, 1] });
+  }), { threshold: [0, 0.5, 1] }) : null;
 
   const clearButtons = () => {
     buttons.forEach((button, element) => {
       resizeObserver.unobserve(element);
-      visibilityObserver.unobserve(element);
+      visibilityObserver?.unobserve(element);
       button.remove();
     });
     buttons.clear();
@@ -122,7 +149,11 @@ export function mountInlineAssistant(): void {
     detectFormFields().forEach((field) => {
       const element = findField(field.fieldId);
       const isTextarea = element instanceof HTMLTextAreaElement;
-      if (field.isSensitive || (!field.isLikelyApplicationQuestion && !isTextarea) || document.querySelector(`button[data-field-id="${CSS.escape(field.fieldId)}"]`)) return;
+      // Autocomplete widgets (react-select and similar) expose role="combobox": the value is only
+      // committed by picking an option from a dropdown, not by writing text into the input, so we
+      // can't reliably fill them and shouldn't offer a button that looks like it will.
+      const isComboBox = element?.getAttribute("role") === "combobox";
+      if (field.isSensitive || isComboBox || (!field.isLikelyApplicationQuestion && !isTextarea) || document.querySelector(`button[data-field-id="${CSS.escape(field.fieldId)}"]`)) return;
       if (!element) return;
       const button = document.createElement("button");
       button.type = "button";
@@ -137,7 +168,7 @@ export function mountInlineAssistant(): void {
       document.body.append(button);
       buttons.set(element, button);
       resizeObserver.observe(element);
-      visibilityObserver.observe(element);
+      visibilityObserver?.observe(element);
       positionButton(element, button);
     });
   };
