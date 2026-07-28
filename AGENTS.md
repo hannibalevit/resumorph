@@ -95,7 +95,7 @@ make build-extension
 - Migrations are additive only through `ALTER TABLE ADD COLUMN`; renames, drops, and type changes require a separate explicit plan.
 - If an API shape is consumed by the extension, update the matching TypeScript type and `api.*` method.
 - Stub LLM calls in tests by patching names imported by `app.services.generation`, not the provider module.
-- `.github/workflows/server-ci.yml` runs the same ruff/mypy/deptry/pytest gate on every push/PR touching `server/**`. Still run backend verification locally before finishing backend work — CI is a backstop, not a substitute for checking before you push.
+- `.github/workflows/server-ci.yml` runs the same ruff/mypy/deptry/pytest gate on every PR and every push to `main` (no `paths:` filter — the `main` ruleset requires its jobs as status checks, and a workflow that doesn't run leaves them pending forever). The `pull_request` trigger is what lets fork PRs report those checks at all; don't reduce either CI workflow back to `on: push`. Still run backend verification locally before finishing backend work — CI is a backstop, not a substitute for checking before you push.
 
 ## LLM And Prompt Rules
 
