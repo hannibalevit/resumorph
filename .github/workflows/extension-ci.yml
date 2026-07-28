@@ -1,6 +1,12 @@
 name: Extension CI
 
-on: push
+# See the trigger comment in server-ci.yml — `pull_request` is required for
+# fork contributions to report the status checks the `main` ruleset demands,
+# and `push` is narrowed to `main` to avoid duplicate runs on in-repo branches.
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 concurrency:
   group: extension-ci-${{ github.workflow }}-${{ github.ref }}
