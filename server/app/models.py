@@ -82,6 +82,8 @@ class LlmProviderConfigModel(Base):
     provider: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     encrypted_api_key: Mapped[str] = mapped_column(Text)
     key_mask: Mapped[str] = mapped_column(String(64))
+    # Nullable for cloud providers; Ollama stores a custom endpoint here (NULL → env/default).
+    base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     default_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     available_models: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     models_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

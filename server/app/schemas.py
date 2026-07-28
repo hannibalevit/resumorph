@@ -157,12 +157,13 @@ class ArtifactResponse(ApiModel):
     notes: GenerationNotes
 
 
-ProviderName = Literal["openai", "gemini", "claude"]
+ProviderName = Literal["openai", "gemini", "claude", "ollama"]
 LlmTaskName = Literal["scan", "resume", "field_answer"]
 
 
 class ProviderConfigInput(ApiModel):
-    api_key: str = Field(alias="apiKey", min_length=8, max_length=500)
+    api_key: str | None = Field(default=None, alias="apiKey", max_length=500)
+    base_url: str | None = Field(default=None, alias="baseUrl", max_length=512)
     default_model: str | None = Field(default=None, alias="defaultModel", max_length=255)
     available_models: list[str] | None = Field(default=None, alias="availableModels")
     test_after_save: bool = Field(default=False, alias="testAfterSave")
@@ -175,6 +176,7 @@ class ProviderModelUpdateInput(ApiModel):
 
 class ProviderTestRequest(ApiModel):
     api_key: str | None = Field(default=None, alias="apiKey")
+    base_url: str | None = Field(default=None, alias="baseUrl", max_length=512)
     model: str | None = None
 
 
@@ -182,6 +184,7 @@ class ProviderModelsRequest(ApiModel):
     """An API key supplied here is used only for this model-list request."""
 
     api_key: str | None = Field(default=None, alias="apiKey", min_length=8, max_length=500)
+    base_url: str | None = Field(default=None, alias="baseUrl", max_length=512)
     refresh: bool = False
 
 
@@ -189,6 +192,7 @@ class ProviderPublicConfig(ApiModel):
     provider: ProviderName
     is_enabled: bool = Field(alias="isEnabled")
     key_mask: str | None = Field(default=None, alias="keyMask")
+    base_url: str | None = Field(default=None, alias="baseUrl")
     default_model: str | None = Field(default=None, alias="defaultModel")
     available_models: list[str] = Field(default_factory=list, alias="availableModels")
     models_updated_at: datetime | None = Field(default=None, alias="modelsUpdatedAt")

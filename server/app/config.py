@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     default_claude_model: str = Field(
         default="claude-haiku-4-5-20251001", alias="DEFAULT_CLAUDE_MODEL"
     )
+    default_ollama_model: str = Field(default="llama3.2", alias="DEFAULT_OLLAMA_MODEL")
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_timeout_seconds: float = Field(default=300.0, alias="OLLAMA_TIMEOUT_SECONDS")
+    ollama_num_ctx: int = Field(default=8192, alias="OLLAMA_NUM_CTX")
 
     model_config = SettingsConfigDict(extra="ignore")
 

@@ -25,6 +25,7 @@ from app.schemas import (
     ProviderName,
     ProviderPublicConfig,
 )
+from app.services.llm_settings import resolve_ollama_base_url
 
 
 def base_profile(db: Session) -> UserProfileModel | None:
@@ -102,10 +103,18 @@ def admin_item(session: JobSessionModel) -> AdminJobSessionItem:
 def public_provider_config(
     provider: str, config: LlmProviderConfigModel | None
 ) -> ProviderPublicConfig:
+    base_url: str | None = None
+    if provider == "ollama":
+        # Always surface the effective URL (saved → env → default) so the UI can
+        # show where requests will go, even before a row is saved.
+        base_url = resolve_ollama_base_url(config.base_url if config else None)
+    elif config is not None:
+        base_url = config.base_url
     return ProviderPublicConfig(
         provider=cast(ProviderName, provider),
         isEnabled=bool(config and config.is_enabled),
         keyMask=config.key_mask if config else None,
+        baseUrl=base_url,
         defaultModel=config.default_model if config else None,
         availableModels=config.available_models or [] if config else [],
         modelsUpdatedAt=config.models_updated_at if config else None,

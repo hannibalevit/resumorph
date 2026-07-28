@@ -41,12 +41,16 @@ third-party service that isn't the LLM provider you already chose to trust.
 
 ## What makes this different
 
-- **Bring your own LLM key.** You supply an OpenAI, Anthropic (Claude), or Google Gemini
-  API key. It's your key, your billing, your data — nothing is proxied through a
-  project-run server.
+- **Bring your own LLM key — or keep it fully local.** Supply an OpenAI, Anthropic
+  (Claude), or Google Gemini API key, or point the backend at a local
+  [Ollama](https://ollama.com/) instance so generation never leaves your machine.
+  It's your key (or your local model), your billing, your data — nothing is proxied
+  through a project-run server.
 - **Local-first, by construction.** There is no ResuMorph server. You run the backend
-  yourself in Docker on `localhost`; the only request that ever leaves your machine is
-  your own backend calling the LLM provider you configured, with your own credentials.
+  yourself in Docker on `localhost`. With a cloud provider, the only request that leaves
+  your machine is your own backend calling that provider with your credentials. With
+  Ollama pointed at a local URL, nothing needs to leave at all (a custom `baseUrl` can
+  still point at another host — the Settings UI shows the effective URL).
 - **Fully open-source (Apache-2.0).** The extension and backend are both auditable in
   this repository — nothing runs that you can't read.
 
@@ -115,9 +119,14 @@ Google Chrome (or another Chromium-based browser).
    | **OpenAI** | `gpt-5.4-mini` |
    | **Anthropic Claude** | `claude-sonnet-5` |
    | **Google Gemini** | `gemini-3.6-flash` |
+   | **Ollama (local)** | whatever you have pulled (e.g. `llama3.2`) — no API key; Settings UI lands in a follow-up, backend API already accepts `provider=ollama` + `baseUrl` |
 
-   → **Test connection** → **Set as Default**. The key is Fernet-encrypted before it's
-   stored; only a masked preview is ever sent back to the extension.
+   → **Test connection** → **Set as Default**. Cloud provider keys are Fernet-encrypted
+   before they're stored; only a masked preview is ever sent back to the extension.
+   Ollama uses a configurable base URL instead of a key (default
+   `http://localhost:11434`; under Docker the compose file sets
+   `OLLAMA_BASE_URL=http://host.docker.internal:11434` — see [SECURITY.md](SECURITY.md)
+   if Ollama only binds loopback).
 
 ## Architecture
 
@@ -126,8 +135,8 @@ ResuMorph is two independent projects that ship together. The **extension**
 a content script that scans pages and assists form fields, only on explicit user action.
 It talks over HTTP to the **backend** (`server/`), a local FastAPI service backed by
 SQLite, which holds your resume, scanned job sessions, and generated artifacts, and
-proxies generation requests to whichever **LLM provider** (OpenAI, Gemini, or Claude) you
-configured, using your own API key. No other service sits in that path. See
+proxies generation requests to whichever **LLM provider** (OpenAI, Gemini, Claude, or
+Ollama) you configured. No other service sits in that path. See
 [CLAUDE.md](CLAUDE.md) (and its condensed counterpart [AGENTS.md](AGENTS.md)) for the
 full architecture breakdown, and [CONTRIBUTING.md](CONTRIBUTING.md) for a from-source
 dev setup.
@@ -137,8 +146,10 @@ dev setup.
 Your resume text, scanned job postings, and generated documents live in a local SQLite
 database inside the Docker volume — nowhere else. Provider API keys are encrypted at
 rest with Fernet (`server/app/security.py`); only a masked preview ever reaches the
-extension. The only data that leaves your machine is what your own backend sends
-directly to the LLM provider you configured, using your own key.
+extension. Cloud provider calls leave your machine only as requests your own backend
+sends directly to the LLM provider you configured, using your own key. With **Ollama**
+configured against a local URL, generation can stay entirely on-machine (a custom base
+URL can still target another host on your LAN — treat that host as trusted).
 
 - [PRIVACY.md](PRIVACY.md) — exactly what's stored, where, and what Chrome permissions
   are used for.

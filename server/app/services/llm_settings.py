@@ -6,7 +6,8 @@ default provider. ``resolve_task_llm`` / ``resolve_default_llm`` implement that
 fallback chain — use these rather than reading ``AppSettingsModel`` fields directly.
 """
 
-from typing import cast
+from typing import NamedTuple, cast
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +21,15 @@ from app.security import SecretEncryptionError, decrypt_secret
 settings = get_settings()
 
 LLM_TASKS = ("scan", "resume", "field_answer")
+KEYLESS_PROVIDERS = frozenset({"ollama"})
+SUPPORTED_PROVIDERS = ("openai", "gemini", "claude", "ollama")
+
+
+class ResolvedLlm(NamedTuple):
+    provider: str
+    model: str
+    api_key: str
+    base_url: str | None
 
 
 def default_model_for(provider: str) -> str:
@@ -27,7 +37,28 @@ def default_model_for(provider: str) -> str:
         "openai": settings.default_openai_model,
         "gemini": settings.default_gemini_model,
         "claude": settings.default_claude_model,
+        "ollama": settings.default_ollama_model,
     }[provider]
+
+
+def normalize_base_url(url: str) -> str:
+    cleaned = url.strip().rstrip("/")
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise fail(
+            422,
+            "LLM_PROVIDER_ERROR",
+            "Base URL must be an absolute http:// or https:// URL.",
+            baseUrl=url,
+        )
+    return cleaned
+
+
+def resolve_ollama_base_url(saved: str | None) -> str:
+    """saved base_url → OLLAMA_BASE_URL env/settings → hardcoded localhost default."""
+    if saved and saved.strip():
+        return saved.strip().rstrip("/")
+    return settings.ollama_base_url.rstrip("/") or "http://localhost:11434"
 
 
 def effective_default_provider(app_settings: AppSettingsModel | None) -> str:
@@ -36,6 +67,10 @@ def effective_default_provider(app_settings: AppSettingsModel | None) -> str:
         if app_settings and app_settings.default_provider
         else settings.default_llm_provider
     )
+
+
+def has_configured_default_provider(app_settings: AppSettingsModel | None) -> bool:
+    return bool(app_settings and app_settings.default_provider)
 
 
 def task_provider_model(
@@ -48,7 +83,7 @@ def task_provider_model(
     )
 
 
-def resolve_llm(db: Session, provider_name: str, model: str | None = None) -> tuple[str, str, str]:
+def resolve_llm(db: Session, provider_name: str, model: str | None = None) -> ResolvedLlm:
     config = db.scalar(
         select(LlmProviderConfigModel).where(
             LlmProviderConfigModel.provider == provider_name,
@@ -74,10 +109,13 @@ def resolve_llm(db: Session, provider_name: str, model: str | None = None) -> tu
             "No model configured for the selected provider.",
             provider=provider_name,
         )
-    return provider_name, effective_model, api_key
+    base_url = (
+        resolve_ollama_base_url(config.base_url) if provider_name == "ollama" else config.base_url
+    )
+    return ResolvedLlm(provider_name, effective_model, api_key, base_url)
 
 
-def resolve_default_llm(db: Session) -> tuple[str, str, str]:
+def resolve_default_llm(db: Session) -> ResolvedLlm:
     app_settings = db.get(AppSettingsModel, "local-settings")
     provider_name = effective_default_provider(app_settings)
     model = (
@@ -88,7 +126,7 @@ def resolve_default_llm(db: Session) -> tuple[str, str, str]:
     return resolve_llm(db, provider_name, model)
 
 
-def resolve_task_llm(db: Session, task: str) -> tuple[str, str, str]:
+def resolve_task_llm(db: Session, task: str) -> ResolvedLlm:
     app_settings = db.get(AppSettingsModel, "local-settings")
     task_provider, task_model = task_provider_model(app_settings, task)
     if task_provider:

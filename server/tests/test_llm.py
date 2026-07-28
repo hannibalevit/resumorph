@@ -6,7 +6,11 @@ from app.llm.base import parse_json_response
 from app.llm.claude_provider import ClaudeProvider
 from app.llm.factory import get_llm_provider
 from app.llm.gemini_provider import GeminiProvider
+from app.llm.ollama_provider import OllamaProvider
 from app.llm.openai_provider import OpenAiProvider
+from app.prompt_loader import render_prompt
+from app.services.llm_settings import normalize_base_url, resolve_ollama_base_url
+from fastapi import HTTPException
 
 # ---------------------------------------------------------------------------
 # base.parse_json_response
@@ -43,11 +47,45 @@ def test_get_llm_provider_returns_matching_implementations() -> None:
     assert isinstance(get_llm_provider("openai"), OpenAiProvider)
     assert isinstance(get_llm_provider("gemini"), GeminiProvider)
     assert isinstance(get_llm_provider("claude"), ClaudeProvider)
+    assert isinstance(get_llm_provider("ollama"), OllamaProvider)
+    assert get_llm_provider("ollama", base_url="http://example:11434").base_url == (
+        "http://example:11434"
+    )
 
 
 def test_get_llm_provider_rejects_unknown() -> None:
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         get_llm_provider("mystery")
+
+
+def test_ollama_prompt_files_resolve() -> None:
+    for task in ("job_scan", "tailored_resume", "cover_letter", "field_answer"):
+        prompt = render_prompt(
+            "ollama",
+            task,
+            job_context_schema="{}",
+            url="https://example.com",
+            title="Role",
+            headings=[],
+            page_text="text",
+            tailored_resume_schema="{}",
+            job_context_json="{}",
+            base_resume="resume",
+            cover_letter_schema="{}",
+            role="Engineer",
+            company="Acme",
+            today="1 January 2026",
+            resume="resume",
+            question="Why?",
+            max_length=200,
+            field_answer_schema="{}",
+            field_type="textarea",
+            placeholder="(none)",
+            nearby_text="(none)",
+            current_value="(empty)",
+        )
+        assert prompt.system
+        assert prompt.user
 
 
 # ---------------------------------------------------------------------------
@@ -229,3 +267,155 @@ async def test_gemini_list_models_filters(monkeypatch) -> None:
 async def test_gemini_test_connection(monkeypatch) -> None:
     _patch_gemini(monkeypatch, text="ok")
     assert await GeminiProvider().test_connection("k") == {"rawTextPreview": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# OllamaProvider
+# ---------------------------------------------------------------------------
+
+
+class _FakeHttpxResponse:
+    def __init__(self, payload: object, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self) -> object:
+        return self._payload
+
+
+class _FakeHttpxClient:
+    def __init__(self, *, get_payload=None, post_payload=None) -> None:
+        self.get_payload = get_payload or {"models": []}
+        self.post_payload = post_payload or {"message": {"content": "{}"}}
+        self.calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def get(self, path: str, headers: dict[str, str] | None = None):
+        self.calls.append(("GET", path, None))
+        return _FakeHttpxResponse(self.get_payload)
+
+    async def post(self, path: str, json: dict[str, object] | None = None, headers=None):
+        self.calls.append(("POST", path, json))
+        return _FakeHttpxResponse(self.post_payload)
+
+
+def _patch_ollama_httpx(monkeypatch, *, get_payload=None, post_payload=None):
+    client = _FakeHttpxClient(get_payload=get_payload, post_payload=post_payload)
+
+    def factory(*args: object, **kwargs: object):
+        return client
+
+    monkeypatch.setattr("app.llm.ollama_provider.httpx.AsyncClient", factory)
+    return client
+
+
+async def test_ollama_list_models(monkeypatch) -> None:
+    _patch_ollama_httpx(
+        monkeypatch,
+        get_payload={"models": [{"name": "llama3.2:latest"}, {"name": "mistral"}, {"model": ""}]},
+    )
+    models = await OllamaProvider(base_url="http://localhost:11434").list_models("")
+    assert models == ["llama3.2:latest", "mistral"]
+
+
+async def test_ollama_generate_json_uses_schema_format(monkeypatch) -> None:
+    client = _patch_ollama_httpx(
+        monkeypatch, post_payload={"message": {"content": '```json\n{"ok": true}\n```'}}
+    )
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+    result = await OllamaProvider(base_url="http://localhost:11434/").generate_json(
+        "", "llama3.2", "sys", "user", response_schema=schema, max_tokens=128
+    )
+    assert result == {"ok": True}
+    assert client.calls[0][0] == "POST"
+    body = client.calls[0][2]
+    assert body is not None
+    assert body["format"] == schema
+    assert body["stream"] is False
+    assert body["options"]["num_ctx"] == 8192
+    assert body["options"]["num_predict"] == 128
+
+
+async def test_ollama_generate_text_sends_bearer_when_key_present(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingClient(_FakeHttpxClient):
+        async def post(self, path: str, json: dict[str, object] | None = None, headers=None):
+            captured["headers"] = headers
+            return await super().post(path, json=json, headers=headers)
+
+    client = CapturingClient(post_payload={"message": {"content": " hi "}})
+    monkeypatch.setattr("app.llm.ollama_provider.httpx.AsyncClient", lambda *a, **k: client)
+    text = await OllamaProvider(base_url="http://localhost:11434").generate_text(
+        "proxy-token", "llama3.2", "sys", "user"
+    )
+    assert text == "hi"
+    assert captured["headers"]["Authorization"] == "Bearer proxy-token"
+
+
+async def test_ollama_test_connection(monkeypatch) -> None:
+    _patch_ollama_httpx(monkeypatch, get_payload={"models": [{"name": "llama3.2"}]})
+    result = await OllamaProvider(base_url="http://localhost:11434").test_connection(
+        "", "llama3.2"
+    )
+    assert "llama3.2" in result["rawTextPreview"]
+
+
+async def test_ollama_generate_json_rejects_empty_content(monkeypatch) -> None:
+    _patch_ollama_httpx(monkeypatch, post_payload={"message": {"content": "  "}})
+    with pytest.raises(ValueError, match="empty chat response"):
+        await OllamaProvider(base_url="http://localhost:11434").generate_json(
+            "", "llama3.2", "sys", "user"
+        )
+
+
+async def test_ollama_generate_json_without_schema_uses_json_format(monkeypatch) -> None:
+    client = _patch_ollama_httpx(monkeypatch, post_payload={"message": {"content": '{"a": 1}'}})
+    result = await OllamaProvider(base_url="http://localhost:11434").generate_json(
+        "", "llama3.2", "sys", "user"
+    )
+    assert result == {"a": 1}
+    assert client.calls[0][2] is not None
+    assert client.calls[0][2]["format"] == "json"
+
+
+async def test_ollama_generate_text_omits_bearer_without_key(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingClient(_FakeHttpxClient):
+        async def post(self, path: str, json: dict[str, object] | None = None, headers=None):
+            captured["headers"] = headers
+            return await super().post(path, json=json, headers=headers)
+
+    client = CapturingClient(post_payload={"message": {"content": "ok"}})
+    monkeypatch.setattr("app.llm.ollama_provider.httpx.AsyncClient", lambda *a, **k: client)
+    await OllamaProvider(base_url="http://localhost:11434").generate_text(
+        "", "llama3.2", "sys", "user"
+    )
+    assert "Authorization" not in captured["headers"]
+
+
+def test_normalize_base_url_strips_slash_and_rejects_bad_scheme() -> None:
+    assert normalize_base_url("http://localhost:11434/") == "http://localhost:11434"
+    with pytest.raises(HTTPException) as exc:
+        normalize_base_url("ftp://localhost:11434")
+    assert exc.value.status_code == 422
+
+
+def test_resolve_ollama_base_url_prefers_saved(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.llm_settings.settings.ollama_base_url",
+        "http://host.docker.internal:11434",
+    )
+    assert resolve_ollama_base_url("http://10.0.0.1:11434/") == "http://10.0.0.1:11434"
+    assert resolve_ollama_base_url(None) == "http://host.docker.internal:11434"
+    assert resolve_ollama_base_url("  ") == "http://host.docker.internal:11434"

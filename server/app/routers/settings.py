@@ -32,15 +32,28 @@ from app.schemas import (
 from app.security import SecretEncryptionError, decrypt_secret, encrypt_secret, mask_secret
 from app.serializers import public_provider_config
 from app.services.llm_settings import (
+    KEYLESS_PROVIDERS,
     LLM_TASKS,
+    SUPPORTED_PROVIDERS,
     default_model_for,
     effective_default_provider,
+    has_configured_default_provider,
+    normalize_base_url,
+    resolve_ollama_base_url,
     task_setting_response,
 )
 
 router = APIRouter()
 
-SUPPORTED_PROVIDERS = {"openai", "gemini", "claude"}
+
+def _resolve_request_base_url(
+    provider: str, requested: str | None, saved: str | None
+) -> str | None:
+    if provider != "ollama":
+        return None
+    if requested and requested.strip():
+        return normalize_base_url(requested)
+    return resolve_ollama_base_url(saved)
 
 
 @router.get("/api/settings/llm-providers", response_model=ProviderSettingsResponse)
@@ -56,8 +69,7 @@ async def get_llm_providers(db: Session = Depends(get_db)) -> ProviderSettingsRe
     ) or (default_config.default_model if default_config else None)
     return ProviderSettingsResponse(
         providers=[
-            public_provider_config(name, configs.get(name))
-            for name in ("openai", "gemini", "claude")
+            public_provider_config(name, configs.get(name)) for name in SUPPORTED_PROVIDERS
         ],
         defaultProvider=cast("ProviderName | None", default_provider),
         defaultModel=default_model,
@@ -74,24 +86,57 @@ async def save_llm_provider(
 ) -> ProviderPublicConfig:
     if provider not in SUPPORTED_PROVIDERS:
         raise fail(422, "LLM_PROVIDER_ERROR", "Unsupported LLM provider.")
+    if provider not in KEYLESS_PROVIDERS and (not payload.api_key or len(payload.api_key) < 8):
+        raise fail(
+            422,
+            "LLM_PROVIDER_ERROR",
+            "API key is required for this provider.",
+            provider=provider,
+        )
+
+    api_key = payload.api_key or ""
     try:
-        encrypted = encrypt_secret(payload.api_key)
+        encrypted = encrypt_secret(api_key)
     except SecretEncryptionError as exc:
         raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+
+    # Empty key must not go through mask_secret (it returns "••••" and looks set).
+    key_mask = mask_secret(api_key) if api_key else ""
+
+    base_url: str | None = None
+    if provider == "ollama":
+        if payload.base_url and payload.base_url.strip():
+            base_url = normalize_base_url(payload.base_url)
+        # else leave NULL so env/default resolution still applies under Docker
+    elif payload.base_url:
+        raise fail(
+            422,
+            "LLM_PROVIDER_ERROR",
+            "baseUrl is only supported for the Ollama provider.",
+            provider=provider,
+        )
+
     config = db.scalar(
         select(LlmProviderConfigModel).where(LlmProviderConfigModel.provider == provider)
     )
     if config is None:
         config = LlmProviderConfigModel(
-            provider=provider, encrypted_api_key=encrypted, key_mask=mask_secret(payload.api_key)
+            provider=provider,
+            encrypted_api_key=encrypted,
+            key_mask=key_mask,
+            base_url=base_url,
         )
         db.add(config)
     else:
-        config.encrypted_api_key, config.key_mask, config.is_enabled = (
-            encrypted,
-            mask_secret(payload.api_key),
-            True,
-        )
+        config.encrypted_api_key = encrypted
+        config.key_mask = key_mask
+        config.is_enabled = True
+        if provider == "ollama":
+            # Only overwrite when the client sent a value (including clearing via "").
+            if payload.base_url is not None:
+                config.base_url = base_url
+        else:
+            config.base_url = None
     config.default_model = payload.default_model or default_model_for(provider)
     if payload.available_models is not None:
         config.available_models, config.models_updated_at = (
@@ -100,7 +145,11 @@ async def save_llm_provider(
         )
     config.updated_at = datetime.utcnow()
     app_settings = db.get(AppSettingsModel, "local-settings")
-    if effective_default_provider(app_settings) == provider:
+    should_set_default = (
+        not has_configured_default_provider(app_settings)
+        or effective_default_provider(app_settings) == provider
+    )
+    if should_set_default:
         if app_settings is None:
             app_settings = AppSettingsModel(id="local-settings", default_provider=provider)
             db.add(app_settings)
@@ -110,7 +159,11 @@ async def save_llm_provider(
     db.commit()
     db.refresh(config)
     if payload.test_after_save:
-        await test_llm_provider(provider, ProviderTestRequest(model=config.default_model), db)
+        await test_llm_provider(
+            provider,
+            ProviderTestRequest(model=config.default_model, baseUrl=config.base_url),
+            db,
+        )
         db.refresh(config)
     return public_provider_config(provider, config)
 
@@ -184,22 +237,28 @@ async def test_llm_provider(
     api_key = payload.api_key
     if not api_key:
         if config is None:
-            raise fail(
-                400,
-                "LLM_PROVIDER_NOT_CONFIGURED",
-                "No API key configured for selected provider.",
-                provider=provider,
-            )
-        try:
-            api_key = decrypt_secret(config.encrypted_api_key)
-        except SecretEncryptionError as exc:
-            raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+            if provider not in KEYLESS_PROVIDERS:
+                raise fail(
+                    400,
+                    "LLM_PROVIDER_NOT_CONFIGURED",
+                    "No API key configured for selected provider.",
+                    provider=provider,
+                )
+            api_key = ""
+        else:
+            try:
+                api_key = decrypt_secret(config.encrypted_api_key)
+            except SecretEncryptionError as exc:
+                raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
     model = (
         payload.model or (config.default_model if config else None) or default_model_for(provider)
     )
+    base_url = _resolve_request_base_url(
+        provider, payload.base_url, config.base_url if config else None
+    )
     started = time.perf_counter()
     try:
-        result = await get_llm_provider(provider).test_connection(api_key, model)
+        result = await get_llm_provider(provider, base_url=base_url).test_connection(api_key, model)
         latency = int((time.perf_counter() - started) * 1000)
         if config:
             config.last_test_status, config.last_test_error, config.last_tested_at = (
@@ -238,7 +297,11 @@ async def test_llm_provider(
 
 
 async def load_provider_models(
-    provider: str, api_key: str | None, refresh: bool, db: Session
+    provider: str,
+    api_key: str | None,
+    refresh: bool,
+    db: Session,
+    base_url: str | None = None,
 ) -> dict[str, object]:
     if provider not in SUPPORTED_PROVIDERS:
         raise fail(422, "LLM_PROVIDER_ERROR", "Unsupported LLM provider.")
@@ -252,18 +315,24 @@ async def load_provider_models(
         return {"provider": provider, "models": config.available_models}
     if not api_key:
         if config is None:
-            raise fail(
-                400,
-                "LLM_PROVIDER_NOT_CONFIGURED",
-                "Enter or save an API key before loading models.",
-                provider=provider,
-            )
-        try:
-            api_key = decrypt_secret(config.encrypted_api_key)
-        except SecretEncryptionError as exc:
-            raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+            if provider not in KEYLESS_PROVIDERS:
+                raise fail(
+                    400,
+                    "LLM_PROVIDER_NOT_CONFIGURED",
+                    "Enter or save an API key before loading models.",
+                    provider=provider,
+                )
+            api_key = ""
+        else:
+            try:
+                api_key = decrypt_secret(config.encrypted_api_key)
+            except SecretEncryptionError as exc:
+                raise fail(500, "SETTINGS_SAVE_FAILED", str(exc)) from exc
+    resolved_base_url = _resolve_request_base_url(
+        provider, base_url, config.base_url if config else None
+    )
     try:
-        models = await get_llm_provider(provider).list_models(api_key)
+        models = await get_llm_provider(provider, base_url=resolved_base_url).list_models(api_key)
         if config and not supplied_api_key:
             config.available_models, config.models_updated_at = models, datetime.utcnow()
             db.commit()
@@ -289,7 +358,9 @@ async def list_saved_provider_models(
 async def list_provider_models(
     provider: str, payload: ProviderModelsRequest, db: Session = Depends(get_db)
 ) -> dict[str, object]:
-    return await load_provider_models(provider, payload.api_key, payload.refresh, db)
+    return await load_provider_models(
+        provider, payload.api_key, payload.refresh, db, base_url=payload.base_url
+    )
 
 
 @router.post("/api/settings/default-llm", response_model=ProviderSettingsResponse)

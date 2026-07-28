@@ -4,7 +4,7 @@ Durable instructions for Codex when working in this repository.
 
 ## Project Purpose
 
-ResuMorph is a local-first Chrome Side Panel extension plus a local FastAPI backend. It scans a user-selected job page, stores resume/job/session data in a local SQLite database, and uses a configured LLM provider to generate tailored resumes, cover letters, and application-field answers. Only LLM API requests leave the machine; API keys are encrypted at rest.
+ResuMorph is a local-first Chrome Side Panel extension plus a local FastAPI backend. It scans a user-selected job page, stores resume/job/session data in a local SQLite database, and uses a configured LLM provider (OpenAI, Gemini, Claude, or local Ollama) to generate tailored resumes, cover letters, and application-field answers. Cloud LLM API requests leave the machine; with Ollama on a local URL, generation can stay fully on-device. API keys are encrypted at rest.
 
 ## Architecture
 
