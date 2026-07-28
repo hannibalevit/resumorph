@@ -1,6 +1,19 @@
 name: Server CI
 
-on: push
+# `pull_request` is what makes this run for contributions from forks: a fork's
+# commits are pushed to the *fork's* repository, so no `push` event ever fires
+# here, and the 5 jobs the `main` ruleset requires as status checks would sit
+# pending forever. `push` is narrowed to `main` so in-repo branches don't get a
+# duplicate run alongside their PR — post-merge pushes still need it for the
+# `coverage-badge` job below.
+#
+# Runs from a fork get a read-only token and no secrets. Every job required by
+# the ruleset works without them; anything that needs a secret must stay gated
+# on `github.event_name == 'push'` (see `coverage-badge`).
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 concurrency:
   group: server-ci-${{ github.workflow }}-${{ github.ref }}

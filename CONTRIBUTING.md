@@ -26,6 +26,56 @@ For anything larger than a small fix (a new LLM provider, a new DB column, a
 new endpoint), please open an issue first to discuss the approach before
 investing time in a PR.
 
+## Getting the code
+
+Unless you already have write access to this repository, contribute through
+a **fork**. That's the normal path here, not a second-class one — write
+access is deliberately limited to a small number of maintainers, because it
+also grants access to CI secrets and to the release artifacts users install.
+
+Fork the repo from its
+[GitHub page](https://github.com/hannibalevit/resumorph), then:
+
+```bash
+git clone https://github.com/<your-username>/resumorph.git
+cd resumorph
+git remote add upstream https://github.com/hannibalevit/resumorph.git
+
+git fetch upstream
+git switch -c feat/my-change upstream/main
+# ...work, commit...
+git push -u origin feat/my-change
+```
+
+Then open the PR from that branch against this repo's `main`.
+
+A few things worth knowing:
+
+- **Work on a branch, not your fork's `main`.** Committing straight to
+  `main` means you can only ever have one PR open, and updating it after
+  review gets messy.
+- **Leave "Allow edits by maintainers" checked** (it's on by default) so a
+  maintainer can push a small fix to your branch rather than sending you
+  through another review round-trip.
+- **`main` requires branches to be up to date before merging**, so you may
+  be asked to rebase:
+  `git fetch upstream && git rebase upstream/main && git push --force-with-lease`.
+
+### What CI looks like on a fork PR
+
+`server-ci.yml` and `extension-ci.yml` both run on `pull_request`, so all
+five required status checks report on your PR exactly as they would on an
+in-repo branch. Two things differ, and both are intentional:
+
+- **Workflows wait for a maintainer to click "Approve and run"** — on every
+  push to your PR, not just the first one. Nothing is wrong with your PR;
+  this repo requires approval for all external contributors so that someone
+  reads the diff before unreviewed code runs on the project's runners with
+  access to its CI. Expect a short delay before checks start moving.
+- **Fork runs get a read-only token and no repository secrets.** Every
+  required check works without them; the one job that does need a secret
+  (the coverage badge) only runs after merge, so it can't fail on your PR.
+
 ## Development setup
 
 ### Backend (`server/`)
@@ -172,9 +222,10 @@ equivalent yet.
 backend preflight (`ruff check`, `ruff format --check`, `mypy`, `deptry`,
 `pytest` with coverage) from `server/` and reports back a compact pass/fail
 summary instead of raw tool output. `.github/workflows/server-ci.yml` runs
-this same gate in CI on every push/PR touching `server/**`, but that's
-minutes away and after the fact — this subagent is what actually catches a
-regression before you push, with CI as the backstop.
+this same gate in CI on every PR, but that's minutes away and after the fact
+(longer still on a fork PR, which waits for a maintainer to approve the run)
+— this subagent is what actually catches a regression before you push, with
+CI as the backstop.
 
 **Hooks** (`.claude/hooks/`, wired via `.claude/settings.json`) — run
 automatically for anyone using Claude Code in this repo:
@@ -229,9 +280,10 @@ Because of this:
 - Don't hand-edit `extension/dist/` — it's committed as a build artifact and
   the release workflow regenerates it from source on every release. Change
   `extension/src/` instead.
-- Open PRs against `main` from a feature branch; once merged, a release
-  happens automatically whenever there's a releasable change — there's no
-  separate manual publish step.
+- Open PRs against `main` from a feature branch — in your fork, unless you
+  have write access here (see [Getting the code](#getting-the-code)). Once
+  merged, a release happens automatically whenever there's a releasable
+  change; there's no separate manual publish step.
 
 ## License
 
