@@ -364,9 +364,7 @@ async def test_ollama_generate_text_sends_bearer_when_key_present(monkeypatch) -
 
 async def test_ollama_test_connection(monkeypatch) -> None:
     _patch_ollama_httpx(monkeypatch, get_payload={"models": [{"name": "llama3.2"}]})
-    result = await OllamaProvider(base_url="http://localhost:11434").test_connection(
-        "", "llama3.2"
-    )
+    result = await OllamaProvider(base_url="http://localhost:11434").test_connection("", "llama3.2")
     assert "llama3.2" in result["rawTextPreview"]
 
 

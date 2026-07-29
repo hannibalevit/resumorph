@@ -68,9 +68,7 @@ async def get_llm_providers(db: Session = Depends(get_db)) -> ProviderSettingsRe
         else None
     ) or (default_config.default_model if default_config else None)
     return ProviderSettingsResponse(
-        providers=[
-            public_provider_config(name, configs.get(name)) for name in SUPPORTED_PROVIDERS
-        ],
+        providers=[public_provider_config(name, configs.get(name)) for name in SUPPORTED_PROVIDERS],
         defaultProvider=cast("ProviderName | None", default_provider),
         defaultModel=default_model,
         taskSettings={
