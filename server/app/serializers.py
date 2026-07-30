@@ -100,12 +100,20 @@ def admin_item(session: JobSessionModel) -> AdminJobSessionItem:
 
 
 def public_provider_config(
-    provider: str, config: LlmProviderConfigModel | None
+    provider: str,
+    config: LlmProviderConfigModel | None,
+    *,
+    base_url: str | None = None,
+    effective_base_url: str | None = None,
 ) -> ProviderPublicConfig:
+    """Pure mapper. Callers resolve Ollama URLs and pass ``base_url`` /
+    ``effective_base_url`` in — this module does not read process config."""
     return ProviderPublicConfig(
         provider=cast(ProviderName, provider),
         isEnabled=bool(config and config.is_enabled),
         keyMask=config.key_mask if config else None,
+        baseUrl=base_url,
+        effectiveBaseUrl=effective_base_url,
         defaultModel=config.default_model if config else None,
         availableModels=config.available_models or [] if config else [],
         modelsUpdatedAt=config.models_updated_at if config else None,

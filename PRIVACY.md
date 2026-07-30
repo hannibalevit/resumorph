@@ -64,12 +64,13 @@ in the extension or backend code.
 When you click **Scan this page**, **Generate resume/cover letter**, or the
 in-page **AI** button on a form field, the backend sends the minimum text
 needed for that specific task (resume text, job text, and/or the target
-field's context) directly to **the LLM provider you configured** — OpenAI,
-Google Gemini, or Anthropic Claude — using **your own API key** for that
-provider. That request goes straight from your machine to the provider's
-API over their official SDK; it does not pass through any server operated
-by this project, and no other auth mode (CLI, OAuth, subscription session,
-etc.) is used for any provider.
+field's context) to **the LLM provider you configured** — OpenAI, Google
+Gemini, Anthropic Claude, or a local/remote **Ollama** endpoint — using
+**your own API key** for cloud providers (Ollama needs no key for a local
+daemon). Cloud requests go straight from your machine to the provider's
+API over their official SDK; they do not pass through any server operated
+by this project. With Ollama pointed at a local URL, that request stays on
+your machine (or goes only to the host you set as `baseUrl`).
 
 What the LLM provider does with the data it receives (retention, use in
 model training, etc.) is governed by *that provider's* privacy policy and

@@ -1299,13 +1299,14 @@ wheels = [
 
 [[package]]
 name = "resumorph-server"
-version = "1.0.2"
+version = "1.1.1"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1321,7 +1322,6 @@ dependencies = [
 dev = [
     { name = "deptry" },
     { name = "fpdf2" },
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1335,6 +1335,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==45.0.5" },
     { name = "fastapi", specifier = "==0.115.13" },
     { name = "google-genai", specifier = "==1.26.0" },
+    { name = "httpx", specifier = "==0.28.1" },
     { name = "openai", specifier = "==1.91.0" },
     { name = "pydantic", specifier = "==2.11.7" },
     { name = "pydantic-settings", specifier = "==2.9.1" },
@@ -1350,7 +1351,6 @@ requires-dist = [
 dev = [
     { name = "deptry", specifier = ">=0.25.1" },
     { name = "fpdf2", specifier = ">=2.8.7" },
-    { name = "httpx", specifier = "==0.28.1" },
     { name = "mypy", specifier = ">=2.1.0" },
     { name = "pytest", specifier = "==8.4.1" },
     { name = "pytest-asyncio", specifier = "==1.0.0" },

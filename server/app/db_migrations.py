@@ -21,7 +21,11 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "cover_letter_generation_provider": "VARCHAR(32)",
         "cover_letter_generation_model": "VARCHAR(255)",
     },
-    "llm_provider_configs": {"available_models": "JSON", "models_updated_at": "DATETIME"},
+    "llm_provider_configs": {
+        "available_models": "JSON",
+        "models_updated_at": "DATETIME",
+        "base_url": "VARCHAR(512)",
+    },
     "generated_artifacts": {
         "llm_provider": "VARCHAR(32)",
         "llm_model": "VARCHAR(255)",

@@ -4,6 +4,7 @@ import app.services.generation as generation
 import pytest
 from app.models import GeneratedArtifactModel, JobRelatedLinkModel, JobSessionModel
 from app.schemas import JobContext
+from app.services.llm_settings import ResolvedLlm
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -109,9 +110,13 @@ def test_scan_job_uses_mocked_llm_and_upserts_session(
             }
 
     monkeypatch.setattr(
-        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
     )
-    monkeypatch.setattr(generation, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(
+        generation, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
 
     payload = {
         "pageSnapshot": {

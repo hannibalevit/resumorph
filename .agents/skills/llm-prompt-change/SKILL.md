@@ -14,6 +14,7 @@ description: Use when adding or changing LLM tasks, providers, prompt templates,
    - `server/app/prompts/claude/`
    - `server/app/prompts/gemini/`
    - `server/app/prompts/openai/`
+   - `server/app/prompts/ollama/`
 5. For a new provider, add a provider implementation under `server/app/llm/`, register it in `llm/factory.py`, update provider literals in `schemas.py`, and add a full prompt directory matching existing tasks.
 6. Update `LlmTaskName` or `ProviderName` literals in `server/app/schemas.py` when names change.
 7. Check every `$placeholder` in changed prompts against the values passed to `render_prompt`.

@@ -14,6 +14,7 @@ from app.routers import legacy as legacy_router
 from app.routers import settings as settings_router
 from app.schemas import JobContext
 from app.security import encrypt_secret
+from app.services.llm_settings import ResolvedLlm
 from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -52,9 +53,13 @@ class StubProvider:
 @pytest.fixture()
 def stub_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
     )
-    monkeypatch.setattr(generation, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(
+        generation, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
 
 
 class CapturingStubProvider(StubProvider):
@@ -73,10 +78,14 @@ class CapturingStubProvider(StubProvider):
 def captured_prompts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     sink: list[str] = []
     monkeypatch.setattr(
-        generation, "resolve_task_llm", lambda db, task: ("openai", "gpt-test", "sk-test")
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
     )
     monkeypatch.setattr(
-        generation, "get_llm_provider", lambda provider: CapturingStubProvider(sink)
+        generation,
+        "get_llm_provider",
+        lambda provider, base_url=None: CapturingStubProvider(sink),
     )
     return sink
 
@@ -489,7 +498,9 @@ def test_list_saved_provider_models(client: TestClient, db_session: Session) -> 
 def test_list_provider_models_with_supplied_key(
     client: TestClient, db_session: Session, stub_llm: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
     response = client.post(
         "/api/settings/llm-providers/openai/models",
         json={"apiKey": "sk-supplied-123456", "refresh": True},
@@ -502,7 +513,9 @@ def test_test_provider_success(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _seed_provider(db_session)
-    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: StubProvider())
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
     response = client.post("/api/settings/llm-providers/openai/test", json={"model": "gpt-test"})
     assert response.status_code == 200
     assert response.json()["status"] == "success"
@@ -519,7 +532,9 @@ def test_test_provider_failure(
         ) -> dict[str, object]:
             raise RuntimeError("bad key")
 
-    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: FailingProvider())
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: FailingProvider()
+    )
     response = client.post("/api/settings/llm-providers/openai/test", json={"model": "gpt-test"})
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
@@ -544,7 +559,9 @@ def test_test_provider_claude_without_explicit_model_uses_default(
             captured["model"] = model
             return {"rawTextPreview": "ok"}
 
-    monkeypatch.setattr(settings_router, "get_llm_provider", lambda provider: CapturingProvider())
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: CapturingProvider()
+    )
     response = client.post(
         "/api/settings/llm-providers/claude/test",
         json={"apiKey": "sk-ant-api03-regular-key-1234567890"},
@@ -552,6 +569,92 @@ def test_test_provider_claude_without_explicit_model_uses_default(
     assert response.status_code == 200
     assert response.json()["status"] == "success"
     assert captured["model"] == "claude-haiku-4-5-20251001"
+
+
+def test_save_ollama_without_api_key_sets_default(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
+    response = client.post(
+        "/api/settings/llm-providers/ollama",
+        json={
+            "baseUrl": "http://192.168.1.10:11434/",
+            "defaultModel": "llama3.2",
+            "testAfterSave": False,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "ollama"
+    assert body["isEnabled"] is True
+    assert body["keyMask"] == ""
+    assert body["baseUrl"] == "http://192.168.1.10:11434"
+    assert body["effectiveBaseUrl"] == "http://192.168.1.10:11434"
+    assert body["defaultModel"] == "llama3.2"
+
+    listed = client.get("/api/settings/llm-providers")
+    assert listed.status_code == 200
+    assert listed.json()["defaultProvider"] == "ollama"
+    ollama = next(item for item in listed.json()["providers"] if item["provider"] == "ollama")
+    assert ollama["baseUrl"] == "http://192.168.1.10:11434"
+    assert ollama["effectiveBaseUrl"] == "http://192.168.1.10:11434"
+
+
+def test_save_openai_still_requires_api_key(client: TestClient) -> None:
+    response = client.post(
+        "/api/settings/llm-providers/openai",
+        json={"defaultModel": "gpt-test"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "LLM_PROVIDER_ERROR"
+
+
+def test_save_ollama_rejects_non_http_base_url(client: TestClient) -> None:
+    response = client.post(
+        "/api/settings/llm-providers/ollama",
+        json={"baseUrl": "ftp://localhost:11434"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "LLM_PROVIDER_ERROR"
+
+
+def test_test_ollama_uses_request_base_url(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingProvider(StubProvider):
+        def __init__(self, base_url: str | None = None) -> None:
+            captured["base_url"] = base_url
+
+    monkeypatch.setattr(
+        settings_router,
+        "get_llm_provider",
+        lambda provider, base_url=None: CapturingProvider(base_url),
+    )
+    response = client.post(
+        "/api/settings/llm-providers/ollama/test",
+        json={"baseUrl": "http://10.0.0.5:11434/", "model": "llama3.2"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert captured["base_url"] == "http://10.0.0.5:11434"
+
+
+def test_list_ollama_models_without_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        settings_router, "get_llm_provider", lambda provider, base_url=None: StubProvider()
+    )
+    response = client.post(
+        "/api/settings/llm-providers/ollama/models",
+        json={"baseUrl": "http://localhost:11434", "refresh": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["models"] == ["gpt-test", "gpt-test-2"]
 
 
 # ---------------------------------------------------------------------------

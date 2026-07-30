@@ -103,7 +103,7 @@ async def admin_artifacts(
 @router.get("/api/admin/stats", response_model=AdminStats)
 async def admin_stats(db: Session = Depends(get_db)) -> AdminStats:
     artifacts = db.scalars(select(GeneratedArtifactModel)).all()
-    by_provider = dict.fromkeys(("openai", "gemini", "claude"), 0)
+    by_provider = dict.fromkeys(("openai", "gemini", "claude", "ollama"), 0)
     for item in artifacts:
         if item.llm_provider in by_provider:
             by_provider[item.llm_provider] += 1

@@ -11,6 +11,10 @@ services:
       # machine from the browser), override this in your own compose file
       # rather than loosening the shipped default.
       - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # Lets the container reach Ollama (or other host services) via
+      # host.docker.internal on Linux as well as Docker Desktop.
+      - "host.docker.internal:host-gateway"
     volumes:
       - data:/data
     environment:
@@ -21,6 +25,15 @@ services:
       # panel's Vite dev server), so it matches app/config.py's own default
       # rather than opening CORS to "*".
       ALLOWED_ORIGINS: "http://localhost:5173"
+      # Ollama on the host is not reachable at localhost from inside the
+      # container. Prefer host.docker.internal; if Ollama only binds
+      # 127.0.0.1 you must also set OLLAMA_HOST (see SECURITY.md / README).
+      # Saved provider base_url wins over this env when non-NULL.
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      # Ollama context window (tokens). Must fit prompt + generation; too small
+      # truncates silently (bad JSON / missing front of prompt, no error).
+      # Default 32768 covers typical resume+job prompts plus max_tokens=4800.
+      OLLAMA_NUM_CTX: "32768"
       # Optional: set API keys here, or configure them later in the extension Settings UI.
       # OPENAI_API_KEY: ""
       # ANTHROPIC_API_KEY: ""

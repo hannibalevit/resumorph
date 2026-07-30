@@ -19,13 +19,13 @@ dependencies = [
     "cryptography==45.0.5",
     "google-genai==1.26.0",
     "anthropic==0.57.1",
+    "httpx==0.28.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest==8.4.1",
     "pytest-asyncio==1.0.0",
-    "httpx==0.28.1",
     "ruff>=0.15.20",
     "mypy>=2.1.0",
     "deptry>=0.25.1",

@@ -106,6 +106,16 @@ worse are still welcome:
 - **Vulnerabilities in third-party LLM providers** (OpenAI, Google Gemini,
   Anthropic) themselves are out of scope here — please report those to the
   respective vendor.
+- **Local Ollama exposure.** Ollama support talks to a user-configured
+  `base_url` (default `http://localhost:11434`). An Ollama daemon bound only
+  to loopback is fine for the `uv run uvicorn` path; under Docker the
+  compose file uses `host.docker.internal` plus `extra_hosts`, and Ollama
+  must listen beyond `127.0.0.1` (e.g. `OLLAMA_HOST=172.17.0.1`) for the
+  container to reach it — prefer the Docker bridge address over `0.0.0.0`
+  when possible. An unauthenticated Ollama reachable on your LAN is its
+  own exposure (anyone on that network can generate against your models);
+  that is a deployment choice, not a ResuMorph vulnerability, but worth
+  understanding before you change bind addresses.
 - Attacks that require the attacker to already have arbitrary code
   execution on the user's machine (at which point the local SQLite DB and
   encryption key are moot) are out of scope.

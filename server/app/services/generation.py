@@ -1,8 +1,8 @@
 """LLM-backed content generation.
 
 This is the single module through which every generation task invokes the LLM:
-``resolve_task_llm`` (provider/model/key resolution) and ``get_llm_provider`` (the
-provider client) are referenced only here for the generation path, so tests stub
+``resolve_task_llm`` (provider/model/key/base_url resolution) and ``get_llm_provider``
+(the provider client) are referenced only here for the generation path, so tests stub
 the LLM by patching those two names on this module.
 """
 
@@ -67,9 +67,9 @@ def _latest_resume_text(db: Session, session_id: str, fallback: str) -> str:
 async def run_job_scan(db: Session, snapshot: PageSnapshot) -> tuple[JobContext, str, str]:
     """Extract a ``JobContext`` from a page snapshot, falling back to a heuristic
     extractor if the LLM call fails. Returns the context plus provider/model used."""
-    provider_name, model, api_key = resolve_task_llm(db, "scan")
+    resolved = resolve_task_llm(db, "scan")
     prompt = render_prompt(
-        provider_name,
+        resolved.provider,
         "job_scan",
         job_context_schema=JobContext.model_json_schema(),
         url=snapshot.url,
@@ -79,42 +79,52 @@ async def run_job_scan(db: Session, snapshot: PageSnapshot) -> tuple[JobContext,
     )
     try:
         context = JobContext.model_validate(
-            await get_llm_provider(provider_name).generate_json(
-                api_key, model, prompt.system, prompt.user, JobContext.model_json_schema(), 3000
+            await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
+                resolved.api_key,
+                resolved.model,
+                prompt.system,
+                prompt.user,
+                JobContext.model_json_schema(),
+                3000,
             )
         )
     except Exception as exc:
         context = extract_context_fallback(snapshot)
         context.warnings.append(f"LLM extraction unavailable: {str(exc)[:240]}")
-    return context, provider_name, model
+    return context, resolved.provider, resolved.model
 
 
 async def build_resume(
     profile: UserProfileModel, session: JobSessionModel, db: Session
 ) -> TailoredResume:
     context = JobContext.model_validate(session.job_context_json)
-    provider_name, model, api_key = resolve_task_llm(db, "resume")
+    resolved = resolve_task_llm(db, "resume")
     prompt = render_prompt(
-        provider_name,
+        resolved.provider,
         "tailored_resume",
         tailored_resume_schema=TailoredResume.model_json_schema(),
         job_context_json=context.model_dump_json(by_alias=True),
         base_resume=profile.base_resume_text,
     )
     try:
-        raw = await get_llm_provider(provider_name).generate_json(
-            api_key, model, prompt.system, prompt.user, TailoredResume.model_json_schema(), 4800
+        raw = await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
+            resolved.api_key,
+            resolved.model,
+            prompt.system,
+            prompt.user,
+            TailoredResume.model_json_schema(),
+            4800,
         )
         resume = preserve_resume_identity(
             TailoredResume.model_validate(raw), profile.base_resume_text
         )
     except Exception as exc:
         raise ResumeGenerationError(
-            f"{provider_name} could not generate a valid structured resume "
-            f"with model {model}: {str(exc)[:300]}"
+            f"{resolved.provider} could not generate a valid structured resume "
+            f"with model {resolved.model}: {str(exc)[:300]}"
         ) from exc
-    session.llm_provider_used = session.resume_generation_provider = provider_name
-    session.llm_model_used = session.resume_generation_model = model
+    session.llm_provider_used = session.resume_generation_provider = resolved.provider
+    session.llm_model_used = session.resume_generation_model = resolved.model
     return resume
 
 
@@ -126,10 +136,10 @@ async def build_cover_letter(
     company = context.company_name or "your organization"
     today = datetime.now()
     today_str = f"{today.day} {today:%B %Y}"
-    provider_name, model, api_key = resolve_task_llm(db, "resume")
+    resolved = resolve_task_llm(db, "resume")
     resume_text = _latest_resume_text(db, session.id, profile.base_resume_text)
     prompt = render_prompt(
-        provider_name,
+        resolved.provider,
         "cover_letter",
         cover_letter_schema=CoverLetter.model_json_schema(),
         role=role,
@@ -139,21 +149,26 @@ async def build_cover_letter(
         resume=resume_text,
     )
     try:
-        raw = await get_llm_provider(provider_name).generate_json(
-            api_key, model, prompt.system, prompt.user, CoverLetter.model_json_schema(), 2400
+        raw = await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
+            resolved.api_key,
+            resolved.model,
+            prompt.system,
+            prompt.user,
+            CoverLetter.model_json_schema(),
+            2400,
         )
         letter = CoverLetter.model_validate(raw)
     except Exception as exc:
         raise ResumeGenerationError(
-            f"{provider_name} could not generate a valid structured cover letter "
-            f"with model {model}: {str(exc)[:300]}"
+            f"{resolved.provider} could not generate a valid structured cover letter "
+            f"with model {resolved.model}: {str(exc)[:300]}"
         ) from exc
     if not letter.contact_info:
         letter.contact_info = extract_contact_info(profile.base_resume_text)
     if not letter.dateline:
         letter.dateline = today_str
-    session.llm_provider_used = session.cover_letter_generation_provider = provider_name
-    session.llm_model_used = session.cover_letter_generation_model = model
+    session.llm_provider_used = session.cover_letter_generation_provider = resolved.provider
+    session.llm_model_used = session.cover_letter_generation_model = resolved.model
     return letter
 
 
@@ -187,7 +202,7 @@ async def generate_field_answer_content(
     """Draft an application-field answer, falling back to a local heuristic if the
     LLM call fails. Returns the answer plus provider/model used."""
     context = JobContext.model_validate(session.job_context_json)
-    provider_name, model, api_key = resolve_task_llm(db, "field_answer")
+    resolved = resolve_task_llm(db, "field_answer")
     question = (
         payload.field.label
         or payload.field.nearby_text
@@ -196,7 +211,7 @@ async def generate_field_answer_content(
     )
     resume_text = _latest_resume_text(db, session.id, profile.base_resume_text)
     prompt = render_prompt(
-        provider_name,
+        resolved.provider,
         "field_answer",
         question=question,
         max_length=payload.max_length,
@@ -209,9 +224,9 @@ async def generate_field_answer_content(
         resume=resume_text,
     )
     try:
-        raw = await get_llm_provider(provider_name).generate_json(
-            api_key,
-            model,
+        raw = await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
+            resolved.api_key,
+            resolved.model,
             prompt.system,
             prompt.user,
             FieldAnswerResponse.model_json_schema(),
@@ -222,4 +237,4 @@ async def generate_field_answer_content(
         answer = local_field_answer(question, profile.base_resume_text, context, payload.max_length)
         answer.warnings.append(f"LLM field answer unavailable: {str(exc)[:240]}")
     answer.needs_user_review = True
-    return answer, provider_name, model
+    return answer, resolved.provider, resolved.model
