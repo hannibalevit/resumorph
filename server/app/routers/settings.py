@@ -63,9 +63,7 @@ def _resolve_request_base_url(
     return resolve_ollama_base_url(saved)
 
 
-def _to_public_config(
-    provider: str, config: LlmProviderConfigModel | None
-) -> ProviderPublicConfig:
+def _to_public_config(provider: str, config: LlmProviderConfigModel | None) -> ProviderPublicConfig:
     """Resolve Ollama URLs here so serializers stay pure model→schema mappers."""
     if provider == "ollama":
         saved = config.base_url if config else None

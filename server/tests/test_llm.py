@@ -421,24 +421,23 @@ async def test_ollama_settings_from_env_reach_client(monkeypatch) -> None:
     monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "120")
     monkeypatch.setenv("OLLAMA_CONNECT_TIMEOUT_SECONDS", "7")
     get_settings.cache_clear()
+    try:
+        client = _patch_ollama_httpx(
+            monkeypatch, post_payload={"message": {"content": '{"ok": true}'}}
+        )
+        provider = OllamaProvider(base_url="http://localhost:11434")
 
-    client = _patch_ollama_httpx(
-        monkeypatch, post_payload={"message": {"content": '{"ok": true}'}}
-    )
-    provider = OllamaProvider(base_url="http://localhost:11434")
-    assert provider._num_ctx == 16384
-    assert provider._generate_timeout == 120.0
-    assert provider._connect_timeout == 7.0
+        # Assert via request body / client timeouts (not private attrs).
+        await provider.generate_json("", "llama3.2", "sys", "user")
+        assert client.calls[0][2] is not None
+        assert client.calls[0][2]["options"]["num_ctx"] == 16384
+        assert client.timeouts == [120.0]  # type: ignore[attr-defined]
 
-    await provider.generate_json("", "llama3.2", "sys", "user")
-    assert client.calls[0][2] is not None
-    assert client.calls[0][2]["options"]["num_ctx"] == 16384
-    assert client.timeouts == [120.0]  # type: ignore[attr-defined]
-
-    await provider.list_models("")
-    assert client.timeouts == [120.0, 7.0]  # type: ignore[attr-defined]
-
-    get_settings.cache_clear()
+        await provider.list_models("")
+        assert client.timeouts == [120.0, 7.0]  # type: ignore[attr-defined]
+    finally:
+        # Always clear so a failed assert cannot leak overridden Settings into later tests.
+        get_settings.cache_clear()
 
 
 async def test_ollama_generate_text_sends_bearer_when_key_present(monkeypatch) -> None:
@@ -506,13 +505,21 @@ def test_normalize_base_url_strips_slash_and_rejects_bad_scheme() -> None:
 
 
 def test_normalize_base_url_drops_query_fragment_and_rejects_credentials() -> None:
-    assert (
-        normalize_base_url("http://localhost:11434/v1?x=1#frag") == "http://localhost:11434/v1"
-    )
+    assert normalize_base_url("http://localhost:11434/v1?x=1#frag") == "http://localhost:11434/v1"
     with pytest.raises(HTTPException) as exc:
         normalize_base_url("http://user:pass@localhost:11434")
     assert exc.value.status_code == 422
     assert "credentials" in str(exc.value.detail).lower()
+
+
+def test_normalize_base_url_rejects_invalid_port() -> None:
+    with pytest.raises(HTTPException) as exc:
+        normalize_base_url("http://localhost:abc")
+    assert exc.value.status_code == 422
+    assert "port" in str(exc.value.detail).lower()
+    with pytest.raises(HTTPException) as out_of_range:
+        normalize_base_url("http://localhost:99999")
+    assert out_of_range.value.status_code == 422
 
 
 def test_resolve_ollama_base_url_prefers_saved(monkeypatch) -> None:

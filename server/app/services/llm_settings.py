@@ -63,11 +63,21 @@ def normalize_base_url(url: str) -> str:
             "Base URL must not include credentials.",
             baseUrl=url,
         )
+    # urlparse.port raises ValueError for non-integer or out-of-range ports.
+    try:
+        port = parsed.port
+    except ValueError:
+        raise fail(
+            422,
+            "LLM_PROVIDER_ERROR",
+            "Base URL must have a valid port.",
+            baseUrl=url,
+        ) from None
     host = parsed.hostname
     # urlparse strips brackets from IPv6 literals; put them back for the URL.
     if ":" in host:
         host = f"[{host}]"
-    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
+    netloc = f"{host}:{port}" if port is not None else host
     path = (parsed.path or "").rstrip("/")
     return f"{parsed.scheme}://{netloc}{path}"
 
