@@ -591,6 +591,7 @@ def test_save_ollama_without_api_key_sets_default(
     assert body["isEnabled"] is True
     assert body["keyMask"] == ""
     assert body["baseUrl"] == "http://192.168.1.10:11434"
+    assert body["effectiveBaseUrl"] == "http://192.168.1.10:11434"
     assert body["defaultModel"] == "llama3.2"
 
     listed = client.get("/api/settings/llm-providers")
@@ -598,6 +599,7 @@ def test_save_ollama_without_api_key_sets_default(
     assert listed.json()["defaultProvider"] == "ollama"
     ollama = next(item for item in listed.json()["providers"] if item["provider"] == "ollama")
     assert ollama["baseUrl"] == "http://192.168.1.10:11434"
+    assert ollama["effectiveBaseUrl"] == "http://192.168.1.10:11434"
 
 
 def test_save_openai_still_requires_api_key(client: TestClient) -> None:

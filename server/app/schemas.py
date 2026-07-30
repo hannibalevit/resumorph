@@ -192,7 +192,10 @@ class ProviderPublicConfig(ApiModel):
     provider: ProviderName
     is_enabled: bool = Field(alias="isEnabled")
     key_mask: str | None = Field(default=None, alias="keyMask")
+    # Saved value only (NULL when unset). Do not round-trip effective/env defaults here.
     base_url: str | None = Field(default=None, alias="baseUrl")
+    # Read-only: where requests will go (saved → env → config default). Ollama only.
+    effective_base_url: str | None = Field(default=None, alias="effectiveBaseUrl")
     default_model: str | None = Field(default=None, alias="defaultModel")
     available_models: list[str] = Field(default_factory=list, alias="availableModels")
     models_updated_at: datetime | None = Field(default=None, alias="modelsUpdatedAt")

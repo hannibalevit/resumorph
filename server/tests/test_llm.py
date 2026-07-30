@@ -1,7 +1,9 @@
 import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from app.config import get_settings
 from app.llm.base import parse_json_response
 from app.llm.claude_provider import ClaudeProvider
 from app.llm.factory import get_llm_provider
@@ -58,7 +60,9 @@ def test_get_llm_provider_rejects_unknown() -> None:
         get_llm_provider("mystery")
 
 
-def test_ollama_prompt_files_resolve() -> None:
+def test_ollama_prompt_files_load_and_substitute() -> None:
+    """Files exist, load, and every $placeholder is substituted (safe_substitute
+    would otherwise leave unknown names in the text and still look like a pass)."""
     for task in ("job_scan", "tailored_resume", "cover_letter", "field_answer"):
         prompt = render_prompt(
             "ollama",
@@ -86,6 +90,8 @@ def test_ollama_prompt_files_resolve() -> None:
         )
         assert prompt.system
         assert prompt.user
+        assert "$" not in prompt.system
+        assert "$" not in prompt.user
 
 
 # ---------------------------------------------------------------------------
@@ -278,19 +284,33 @@ class _FakeHttpxResponse:
     def __init__(self, payload: object, status_code: int = 200) -> None:
         self._payload = payload
         self.status_code = status_code
+        self.request = httpx.Request("GET", "http://localhost:11434/")
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+            raise httpx.HTTPStatusError(
+                f"Client error {self.status_code}",
+                request=self.request,
+                response=httpx.Response(self.status_code, request=self.request),
+            )
 
     def json(self) -> object:
         return self._payload
 
 
 class _FakeHttpxClient:
-    def __init__(self, *, get_payload=None, post_payload=None) -> None:
+    def __init__(
+        self,
+        *,
+        get_payload=None,
+        post_payload=None,
+        get_status: int = 200,
+        post_status: int = 200,
+    ) -> None:
         self.get_payload = get_payload or {"models": []}
         self.post_payload = post_payload or {"message": {"content": "{}"}}
+        self.get_status = get_status
+        self.post_status = post_status
         self.calls: list[tuple[str, str, dict[str, object] | None]] = []
 
     async def __aenter__(self):
@@ -301,30 +321,61 @@ class _FakeHttpxClient:
 
     async def get(self, path: str, headers: dict[str, str] | None = None):
         self.calls.append(("GET", path, None))
-        return _FakeHttpxResponse(self.get_payload)
+        response = _FakeHttpxResponse(self.get_payload, self.get_status)
+        response.request = httpx.Request("GET", f"http://localhost:11434{path}")
+        return response
 
     async def post(self, path: str, json: dict[str, object] | None = None, headers=None):
         self.calls.append(("POST", path, json))
-        return _FakeHttpxResponse(self.post_payload)
+        response = _FakeHttpxResponse(self.post_payload, self.post_status)
+        response.request = httpx.Request("POST", f"http://localhost:11434{path}")
+        return response
 
 
-def _patch_ollama_httpx(monkeypatch, *, get_payload=None, post_payload=None):
-    client = _FakeHttpxClient(get_payload=get_payload, post_payload=post_payload)
+def _patch_ollama_httpx(
+    monkeypatch,
+    *,
+    get_payload=None,
+    post_payload=None,
+    get_status: int = 200,
+    post_status: int = 200,
+):
+    client = _FakeHttpxClient(
+        get_payload=get_payload,
+        post_payload=post_payload,
+        get_status=get_status,
+        post_status=post_status,
+    )
+    timeouts: list[float] = []
 
     def factory(*args: object, **kwargs: object):
+        timeout = kwargs.get("timeout")
+        if isinstance(timeout, (int, float)):
+            timeouts.append(float(timeout))
         return client
 
     monkeypatch.setattr("app.llm.ollama_provider.httpx.AsyncClient", factory)
+    client.timeouts = timeouts  # type: ignore[attr-defined]
     return client
 
 
 async def test_ollama_list_models(monkeypatch) -> None:
-    _patch_ollama_httpx(
+    client = _patch_ollama_httpx(
         monkeypatch,
-        get_payload={"models": [{"name": "llama3.2:latest"}, {"name": "mistral"}, {"model": ""}]},
+        get_payload={
+            "models": [
+                {"name": "llama3.2:latest"},
+                {"name": "mistral"},
+                {"model": ""},
+                "not-a-dict",
+                42,
+                None,
+            ]
+        },
     )
     models = await OllamaProvider(base_url="http://localhost:11434").list_models("")
     assert models == ["llama3.2:latest", "mistral"]
+    assert client.timeouts == [10.0]  # type: ignore[attr-defined]
 
 
 async def test_ollama_generate_json_uses_schema_format(monkeypatch) -> None:
@@ -341,8 +392,53 @@ async def test_ollama_generate_json_uses_schema_format(monkeypatch) -> None:
     assert body is not None
     assert body["format"] == schema
     assert body["stream"] is False
-    assert body["options"]["num_ctx"] == 8192
+    assert body["options"]["num_ctx"] == 32768
     assert body["options"]["num_predict"] == 128
+    assert client.timeouts == [300.0]  # type: ignore[attr-defined]
+
+
+async def test_ollama_generate_json_surfaces_http_error_when_model_missing(
+    monkeypatch,
+) -> None:
+    """Pulled-model miss is usually a non-2xx from /api/chat (e.g. 404)."""
+    _patch_ollama_httpx(monkeypatch, post_status=404, post_payload={"error": "model not found"})
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await OllamaProvider(base_url="http://localhost:11434").generate_json(
+            "", "missing-model", "sys", "user"
+        )
+    assert exc.value.response.status_code == 404
+
+
+async def test_ollama_list_models_surfaces_http_error(monkeypatch) -> None:
+    _patch_ollama_httpx(monkeypatch, get_status=503, get_payload={"error": "unavailable"})
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await OllamaProvider(base_url="http://localhost:11434").list_models("")
+    assert exc.value.response.status_code == 503
+
+
+async def test_ollama_settings_from_env_reach_client(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "16384")
+    monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("OLLAMA_CONNECT_TIMEOUT_SECONDS", "7")
+    get_settings.cache_clear()
+
+    client = _patch_ollama_httpx(
+        monkeypatch, post_payload={"message": {"content": '{"ok": true}'}}
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434")
+    assert provider._num_ctx == 16384
+    assert provider._generate_timeout == 120.0
+    assert provider._connect_timeout == 7.0
+
+    await provider.generate_json("", "llama3.2", "sys", "user")
+    assert client.calls[0][2] is not None
+    assert client.calls[0][2]["options"]["num_ctx"] == 16384
+    assert client.timeouts == [120.0]  # type: ignore[attr-defined]
+
+    await provider.list_models("")
+    assert client.timeouts == [120.0, 7.0]  # type: ignore[attr-defined]
+
+    get_settings.cache_clear()
 
 
 async def test_ollama_generate_text_sends_bearer_when_key_present(monkeypatch) -> None:
@@ -399,7 +495,7 @@ async def test_ollama_generate_text_omits_bearer_without_key(monkeypatch) -> Non
     await OllamaProvider(base_url="http://localhost:11434").generate_text(
         "", "llama3.2", "sys", "user"
     )
-    assert "Authorization" not in captured["headers"]
+    assert captured["headers"] == {}
 
 
 def test_normalize_base_url_strips_slash_and_rejects_bad_scheme() -> None:
@@ -407,6 +503,16 @@ def test_normalize_base_url_strips_slash_and_rejects_bad_scheme() -> None:
     with pytest.raises(HTTPException) as exc:
         normalize_base_url("ftp://localhost:11434")
     assert exc.value.status_code == 422
+
+
+def test_normalize_base_url_drops_query_fragment_and_rejects_credentials() -> None:
+    assert (
+        normalize_base_url("http://localhost:11434/v1?x=1#frag") == "http://localhost:11434/v1"
+    )
+    with pytest.raises(HTTPException) as exc:
+        normalize_base_url("http://user:pass@localhost:11434")
+    assert exc.value.status_code == 422
+    assert "credentials" in str(exc.value.detail).lower()
 
 
 def test_resolve_ollama_base_url_prefers_saved(monkeypatch) -> None:
@@ -417,3 +523,8 @@ def test_resolve_ollama_base_url_prefers_saved(monkeypatch) -> None:
     assert resolve_ollama_base_url("http://10.0.0.1:11434/") == "http://10.0.0.1:11434"
     assert resolve_ollama_base_url(None) == "http://host.docker.internal:11434"
     assert resolve_ollama_base_url("  ") == "http://host.docker.internal:11434"
+
+
+def test_resolve_ollama_base_url_whitespace_env_falls_back(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.llm_settings.settings.ollama_base_url", "   ")
+    assert resolve_ollama_base_url(None) == "http://localhost:11434"

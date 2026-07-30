@@ -119,14 +119,16 @@ Google Chrome (or another Chromium-based browser).
    | **OpenAI** | `gpt-5.4-mini` |
    | **Anthropic Claude** | `claude-sonnet-5` |
    | **Google Gemini** | `gemini-3.6-flash` |
-   | **Ollama (local)** | whatever you have pulled (e.g. `llama3.2`) — no API key; Settings UI lands in a follow-up, backend API already accepts `provider=ollama` + `baseUrl` |
+   | **Ollama (local)** | whatever you have pulled (e.g. `llama3.2`) — no API key; Settings UI lands in a follow-up, backend API already accepts `provider=ollama` + optional `baseUrl` (saved) / returns `effectiveBaseUrl` for display |
 
    → **Test connection** → **Set as Default**. Cloud provider keys are Fernet-encrypted
    before they're stored; only a masked preview is ever sent back to the extension.
    Ollama uses a configurable base URL instead of a key (default
    `http://localhost:11434`; under Docker the compose file sets
    `OLLAMA_BASE_URL=http://host.docker.internal:11434` — see [SECURITY.md](SECURITY.md)
-   if Ollama only binds loopback).
+   if Ollama only binds loopback). Context size is `OLLAMA_NUM_CTX` (default
+   **32768**): too small and Ollama truncates the prompt **silently**, so resume
+   generation can fail mid-JSON or look like garbage with no clear error.
 
 ## Architecture
 

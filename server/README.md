@@ -15,10 +15,15 @@ cp .env.example .env
 Edit `.env` and set `MASTER_ENCRYPTION_KEY` to a Fernet key (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — this encrypts the LLM provider API keys at rest. You don't need to put a provider API key in `.env`: OpenAI/Gemini/Claude keys are entered later through the extension's Settings panel and stored encrypted in the local SQLite database, never in an env var. (The optional `OPENAI_API_KEY` env var only powers the deprecated non-session `POST /api/generate-resume` endpoint in `routers/legacy.py`.)
 
 For **Ollama**, set `OLLAMA_BASE_URL` (default `http://localhost:11434`) and optionally
-`OLLAMA_TIMEOUT_SECONDS` / `OLLAMA_NUM_CTX`. Under Docker, compose sets
-`OLLAMA_BASE_URL=http://host.docker.internal:11434` and adds `extra_hosts`; if Ollama
-only binds `127.0.0.1`, the container still cannot reach it until you change
-`OLLAMA_HOST` (prefer the Docker bridge address over `0.0.0.0` — see root `SECURITY.md`).
+`OLLAMA_TIMEOUT_SECONDS` (generation, default 300), `OLLAMA_CONNECT_TIMEOUT_SECONDS`
+(list/test only, default 10 — so a unreachable host fails fast), and `OLLAMA_NUM_CTX`.
+**`OLLAMA_NUM_CTX` defaults to `32768`** — resume/cover-letter prompts are large, and if
+the window is too small Ollama truncates **silently** (mid-JSON parse failures, or dropped
+prompt prefix with no error). Do not treat a lower value as a safe “tested default.” Under
+Docker, compose sets `OLLAMA_BASE_URL=http://host.docker.internal:11434` and
+`OLLAMA_NUM_CTX`; if Ollama only binds `127.0.0.1`, the container still cannot reach it
+until you change `OLLAMA_HOST` (prefer the Docker bridge address over `0.0.0.0` — see
+root `SECURITY.md`).
 
 ## Run
 

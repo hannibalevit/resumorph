@@ -2,8 +2,9 @@
 
 Uses native ``/api/tags`` and ``/api/chat`` (not the OpenAI-compat ``/v1`` layer)
 so structured output can pass a JSON schema through ``format``. Context window
-defaults are raised via ``num_ctx`` because Ollama's stock window silently
-truncates long resume+job prompts.
+defaults to ``OLLAMA_NUM_CTX`` (32768) because Ollama's stock window silently
+truncates long resume+job prompts — too small a value cuts mid-JSON or drops
+the front of the prompt with no error.
 """
 
 from typing import Any
@@ -13,34 +14,61 @@ import httpx
 from app.config import get_settings
 from app.llm.base import LlmProvider, parse_json_response
 
-DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-
 
 class OllamaProvider(LlmProvider):
     provider_name = "ollama"
 
     def __init__(self, base_url: str | None = None) -> None:
         settings = get_settings()
-        resolved = (base_url or settings.ollama_base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
-        self.base_url = resolved
-        self._timeout = settings.ollama_timeout_seconds
+        # config.ollama_base_url always has a default; callers may override per request.
+        self.base_url = (base_url or settings.ollama_base_url).strip().rstrip("/")
+        self._generate_timeout = settings.ollama_timeout_seconds
+        self._connect_timeout = settings.ollama_connect_timeout_seconds
         self._num_ctx = settings.ollama_num_ctx
 
     def _headers(self, api_key: str) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
         # Local Ollama needs no auth; a non-empty key is only for LAN proxies /
         # future optional tokens (stored encrypted like other providers).
+        # Content-Type is set by httpx when json= is passed.
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        return headers
+            return {"Authorization": f"Bearer {api_key}"}
+        return {}
 
-    def _client(self) -> httpx.AsyncClient:
+    def _client(self, timeout: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            base_url=self.base_url, timeout=self._timeout, headers={"Accept": "application/json"}
+            base_url=self.base_url, timeout=timeout, headers={"Accept": "application/json"}
         )
 
+    async def _chat(
+        self,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        fmt: object | None = None,
+    ) -> str:
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "options": {"num_ctx": self._num_ctx, "num_predict": max_tokens},
+        }
+        if fmt is not None:
+            body["format"] = fmt
+        async with self._client(self._generate_timeout) as client:
+            response = await client.post("/api/chat", json=body, headers=self._headers(api_key))
+            response.raise_for_status()
+            payload = response.json()
+        message = payload.get("message") or {}
+        content = message.get("content") if isinstance(message, dict) else None
+        return str(content or "").strip()
+
     async def list_models(self, api_key: str) -> list[str]:
-        async with self._client() as client:
+        async with self._client(self._connect_timeout) as client:
             response = await client.get("/api/tags", headers=self._headers(api_key))
             response.raise_for_status()
             payload = response.json()
@@ -54,22 +82,7 @@ class OllamaProvider(LlmProvider):
     async def generate_text(
         self, api_key: str, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000
     ) -> str:
-        body: dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "options": {"num_ctx": self._num_ctx, "num_predict": max_tokens},
-        }
-        async with self._client() as client:
-            response = await client.post("/api/chat", json=body, headers=self._headers(api_key))
-            response.raise_for_status()
-            payload = response.json()
-        message = payload.get("message") or {}
-        content = message.get("content") if isinstance(message, dict) else None
-        return str(content or "").strip()
+        return await self._chat(api_key, model, system_prompt, user_prompt, max_tokens)
 
     async def generate_json(
         self,
@@ -80,23 +93,14 @@ class OllamaProvider(LlmProvider):
         response_schema: dict[str, Any] | None = None,
         max_tokens: int = 2000,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "format": response_schema if response_schema is not None else "json",
-            "options": {"num_ctx": self._num_ctx, "num_predict": max_tokens},
-        }
-        async with self._client() as client:
-            response = await client.post("/api/chat", json=body, headers=self._headers(api_key))
-            response.raise_for_status()
-            payload = response.json()
-        message = payload.get("message") or {}
-        content = message.get("content") if isinstance(message, dict) else None
-        text = str(content or "").strip()
+        text = await self._chat(
+            api_key,
+            model,
+            system_prompt,
+            user_prompt,
+            max_tokens,
+            fmt=response_schema if response_schema is not None else "json",
+        )
         if not text:
             raise ValueError("Ollama returned an empty chat response.")
         return parse_json_response(text)

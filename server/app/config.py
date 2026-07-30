@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
+# Single default for Ollama base URL (Field + resolve fallback when env is blank/whitespace).
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+
 
 class Settings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
@@ -21,9 +24,19 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5-20251001", alias="DEFAULT_CLAUDE_MODEL"
     )
     default_ollama_model: str = Field(default="llama3.2", alias="DEFAULT_OLLAMA_MODEL")
-    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_base_url: str = Field(default=DEFAULT_OLLAMA_BASE_URL, alias="OLLAMA_BASE_URL")
+    # Generation (CPU + cold model load) can take minutes; keep this long.
     ollama_timeout_seconds: float = Field(default=300.0, alias="OLLAMA_TIMEOUT_SECONDS")
-    ollama_num_ctx: int = Field(default=8192, alias="OLLAMA_NUM_CTX")
+    # Reachability checks (list_models / test_connection) should fail fast when
+    # the host is unreachable (e.g. Ollama still on 127.0.0.1 under Docker).
+    ollama_connect_timeout_seconds: float = Field(
+        default=10.0, alias="OLLAMA_CONNECT_TIMEOUT_SECONDS"
+    )
+    # Resume/cover-letter prompts are ~5–7k+ tokens before generation; Ollama
+    # truncates silently when the window is too small. 32768 leaves room for
+    # prompt + num_predict (e.g. build_resume's max_tokens=4800). Lower only if
+    # your model/hardware cannot load that context.
+    ollama_num_ctx: int = Field(default=32768, alias="OLLAMA_NUM_CTX")
 
     model_config = SettingsConfigDict(extra="ignore")
 

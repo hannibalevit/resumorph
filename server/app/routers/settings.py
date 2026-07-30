@@ -50,10 +50,32 @@ def _resolve_request_base_url(
     provider: str, requested: str | None, saved: str | None
 ) -> str | None:
     if provider != "ollama":
+        if requested is not None:
+            raise fail(
+                422,
+                "LLM_PROVIDER_ERROR",
+                "baseUrl is only supported for the Ollama provider.",
+                provider=provider,
+            )
         return None
     if requested and requested.strip():
         return normalize_base_url(requested)
     return resolve_ollama_base_url(saved)
+
+
+def _to_public_config(
+    provider: str, config: LlmProviderConfigModel | None
+) -> ProviderPublicConfig:
+    """Resolve Ollama URLs here so serializers stay pure model→schema mappers."""
+    if provider == "ollama":
+        saved = config.base_url if config else None
+        return public_provider_config(
+            provider,
+            config,
+            base_url=saved,
+            effective_base_url=resolve_ollama_base_url(saved),
+        )
+    return public_provider_config(provider, config)
 
 
 @router.get("/api/settings/llm-providers", response_model=ProviderSettingsResponse)
@@ -68,7 +90,7 @@ async def get_llm_providers(db: Session = Depends(get_db)) -> ProviderSettingsRe
         else None
     ) or (default_config.default_model if default_config else None)
     return ProviderSettingsResponse(
-        providers=[public_provider_config(name, configs.get(name)) for name in SUPPORTED_PROVIDERS],
+        providers=[_to_public_config(name, configs.get(name)) for name in SUPPORTED_PROVIDERS],
         defaultProvider=cast("ProviderName | None", default_provider),
         defaultModel=default_model,
         taskSettings={
@@ -106,7 +128,7 @@ async def save_llm_provider(
         if payload.base_url and payload.base_url.strip():
             base_url = normalize_base_url(payload.base_url)
         # else leave NULL so env/default resolution still applies under Docker
-    elif payload.base_url:
+    elif payload.base_url is not None:
         raise fail(
             422,
             "LLM_PROVIDER_ERROR",
@@ -163,7 +185,7 @@ async def save_llm_provider(
             db,
         )
         db.refresh(config)
-    return public_provider_config(provider, config)
+    return _to_public_config(provider, config)
 
 
 @router.delete("/api/settings/llm-providers/{provider}", status_code=status.HTTP_204_NO_CONTENT)
@@ -219,7 +241,7 @@ async def update_llm_provider_model(
         app_settings.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(config)
-    return public_provider_config(provider, config)
+    return _to_public_config(provider, config)
 
 
 @router.post("/api/settings/llm-providers/{provider}/test", response_model=ProviderTestResponse)
@@ -251,6 +273,7 @@ async def test_llm_provider(
     model = (
         payload.model or (config.default_model if config else None) or default_model_for(provider)
     )
+    # Also rejects baseUrl for non-ollama (same 422 as save).
     base_url = _resolve_request_base_url(
         provider, payload.base_url, config.base_url if config else None
     )
@@ -349,6 +372,21 @@ async def load_provider_models(
 async def list_saved_provider_models(
     provider: str, db: Session = Depends(get_db)
 ) -> dict[str, object]:
+    """Return the cached model list only — never probe the network for an unsaved provider."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise fail(422, "LLM_PROVIDER_ERROR", "Unsupported LLM provider.")
+    config = db.scalar(
+        select(LlmProviderConfigModel).where(
+            LlmProviderConfigModel.provider == provider, LlmProviderConfigModel.is_enabled.is_(True)
+        )
+    )
+    if config is None:
+        raise fail(
+            400,
+            "LLM_PROVIDER_NOT_CONFIGURED",
+            "No LLM provider configured. Open Settings and save a provider first.",
+            provider=provider,
+        )
     return await load_provider_models(provider, None, False, db)
 
 

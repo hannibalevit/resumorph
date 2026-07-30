@@ -40,7 +40,13 @@ def test_resolve_llm_ollama_returns_base_url(db_session: Session) -> None:
     assert resolved.base_url == "http://10.0.0.9:11434"
 
 
-def test_resolve_task_llm_uses_task_override(db_session: Session) -> None:
+def test_resolve_task_llm_uses_task_override(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.services.llm_settings.settings.ollama_base_url",
+        "http://host.docker.internal:11434",
+    )
     db_session.add(
         LlmProviderConfigModel(
             provider="ollama",
@@ -74,6 +80,8 @@ def test_resolve_task_llm_uses_task_override(db_session: Session) -> None:
     resolved = resolve_task_llm(db_session, "scan")
     assert resolved.provider == "ollama"
     assert resolved.model == "llama3.2"
+    # NULL saved base_url → env (the Docker-sensitive path).
+    assert resolved.base_url == "http://host.docker.internal:11434"
     assert resolve_default_llm(db_session).provider == "openai"
 
 
@@ -97,7 +105,8 @@ def test_save_ollama_without_base_url_uses_env_default(
     assert response.status_code == 200
     body = response.json()
     assert body["keyMask"] == ""
-    assert body["baseUrl"]  # effective URL from env/default
+    assert body["baseUrl"] is None  # not persisted — env still applies
+    assert body["effectiveBaseUrl"]  # resolved from env/default for display
     assert body["isEnabled"] is True
 
 
@@ -110,12 +119,37 @@ def test_save_rejects_base_url_for_openai(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "LLM_PROVIDER_ERROR"
 
 
+def test_save_rejects_empty_base_url_for_openai(client: TestClient) -> None:
+    response = client.post(
+        "/api/settings/llm-providers/openai",
+        json={"apiKey": "sk-secret-123456", "baseUrl": ""},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "LLM_PROVIDER_ERROR"
+
+
+def test_test_rejects_base_url_for_openai(client: TestClient) -> None:
+    response = client.post(
+        "/api/settings/llm-providers/openai/test",
+        json={"apiKey": "sk-secret-123456", "baseUrl": "http://localhost:11434"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "LLM_PROVIDER_ERROR"
+
+
+def test_get_ollama_models_without_saved_config_is_400(client: TestClient) -> None:
+    response = client.get("/api/settings/llm-providers/ollama/models")
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "LLM_PROVIDER_NOT_CONFIGURED"
+
+
 def test_get_providers_includes_ollama_effective_url(client: TestClient) -> None:
     response = client.get("/api/settings/llm-providers")
     assert response.status_code == 200
     providers = {item["provider"]: item for item in response.json()["providers"]}
     assert "ollama" in providers
-    assert providers["ollama"]["baseUrl"]
+    assert providers["ollama"]["baseUrl"] is None
+    assert providers["ollama"]["effectiveBaseUrl"]
     assert providers["ollama"]["isEnabled"] is False
 
 
@@ -144,6 +178,7 @@ def test_update_ollama_base_url_on_existing_row(
     )
     assert second.status_code == 200
     assert second.json()["baseUrl"] == "http://192.168.0.50:11434"
+    assert second.json()["effectiveBaseUrl"] == "http://192.168.0.50:11434"
 
 
 def test_list_ollama_models_persists_when_configured(
@@ -202,5 +237,12 @@ def test_delete_ollama_clears_default(client: TestClient, db_session: Session) -
     db_session.commit()
 
     assert client.delete("/api/settings/llm-providers/ollama").status_code == 204
+    db_session.expire_all()
+    app_settings = db_session.get(AppSettingsModel, "local-settings")
+    assert app_settings is not None
+    assert app_settings.default_provider is None
+    assert app_settings.default_model is None
+    # GET still reports the env effective fallback (DEFAULT_LLM_PROVIDER), not the
+    # cleared stored value — generation uses effective_default_provider the same way.
     listed = client.get("/api/settings/llm-providers")
-    assert listed.json()["defaultProvider"] in (None, "openai")
+    assert listed.json()["defaultProvider"] == "openai"

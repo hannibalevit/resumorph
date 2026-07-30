@@ -13,9 +13,9 @@ the code change that introduced it.
 
 ## Adding a new task (e.g. a 4th task beyond scan/resume/field_answer)
 
-1. Create `<task>.system.md` and `<task>.user.md` under **all three** provider
-   directories: `server/app/prompts/claude/`, `.../gemini/`, `.../openai/`.
-   That's 6 files minimum for one new task.
+1. Create `<task>.system.md` and `<task>.user.md` under **every** provider
+   directory: `server/app/prompts/claude/`, `.../gemini/`, `.../openai/`,
+   `.../ollama/`. That's 8 files minimum for one new task.
 2. Add the task name to the `LlmTaskName` Literal in `server/app/schemas.py`.
 3. Add the orchestration function in `server/app/services/generation.py`
    (follow the shape of `run_job_scan` / `build_resume` — call
@@ -27,7 +27,7 @@ the code change that introduced it.
    `add-db-column` flow if it's a new column).
 5. Add a router endpoint if user-facing (see `add-backend-endpoint`).
 
-## Adding a new provider (rarer — a 4th LLM provider beyond openai/gemini/claude)
+## Adding a new provider (rarer — beyond openai/gemini/claude/ollama)
 
 Same idea, more surface: a `prompts/<provider>/` dir mirroring every existing
 task file, a new `LlmProvider` subclass in `server/app/llm/` (see `llm/base.py`

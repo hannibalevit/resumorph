@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
+from app.config import DEFAULT_OLLAMA_BASE_URL, get_settings
 from app.errors import fail
 from app.models import AppSettingsModel, LlmProviderConfigModel
 from app.schemas import LlmTaskName, ProviderName, TaskLlmSetting
@@ -42,23 +42,43 @@ def default_model_for(provider: str) -> str:
 
 
 def normalize_base_url(url: str) -> str:
-    cleaned = url.strip().rstrip("/")
+    """Validate and canonicalize a user-supplied Ollama base URL.
+
+    Rejects embedded credentials (they can leak via httpx error text). Drops
+    query strings and fragments. Strips trailing slashes.
+    """
+    cleaned = url.strip()
     parsed = urlparse(cleaned)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise fail(
             422,
             "LLM_PROVIDER_ERROR",
             "Base URL must be an absolute http:// or https:// URL.",
             baseUrl=url,
         )
-    return cleaned
+    if parsed.username is not None or parsed.password is not None:
+        raise fail(
+            422,
+            "LLM_PROVIDER_ERROR",
+            "Base URL must not include credentials.",
+            baseUrl=url,
+        )
+    host = parsed.hostname
+    # urlparse strips brackets from IPv6 literals; put them back for the URL.
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
+    path = (parsed.path or "").rstrip("/")
+    return f"{parsed.scheme}://{netloc}{path}"
 
 
 def resolve_ollama_base_url(saved: str | None) -> str:
-    """saved base_url → OLLAMA_BASE_URL env/settings → hardcoded localhost default."""
+    """saved base_url → OLLAMA_BASE_URL from settings (config.py is the sole default)."""
     if saved and saved.strip():
         return saved.strip().rstrip("/")
-    return settings.ollama_base_url.rstrip("/") or "http://localhost:11434"
+    # Whitespace-only env must not win over the real default (strip, then fall back).
+    env = settings.ollama_base_url.strip().rstrip("/")
+    return env or DEFAULT_OLLAMA_BASE_URL
 
 
 def effective_default_provider(app_settings: AppSettingsModel | None) -> str:
