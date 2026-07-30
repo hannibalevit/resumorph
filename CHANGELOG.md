@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-30
+
+### Features
+
+- *(server)* Add Ollama provider (#32) ([`8672969`](https://github.com/hannibalevit/resumorph/commit/8672969cf8e4b6deaf8bbb0998d9bf0a23c8ddcc))
+
 ## [1.1.1] - 2026-07-27
 
 ### Bug Fixes
