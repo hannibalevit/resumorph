@@ -1,23 +1,14 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { api, type ProviderName, type ProviderSettings } from "../shared/apiClient";
+import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
 import { DEFAULT_API_BASE_URL, getApiBaseUrl, normalizeApiBaseUrl, saveApiBaseUrl, saveOnboardingComplete } from "../shared/storage";
 import { parseResumeFile } from "../shared/resumeParser";
-
-const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string }> = [
-  { id: "openai", label: "OpenAI", placeholder: "sk-..." },
-  { id: "gemini", label: "Gemini", placeholder: "AIza..." },
-  { id: "claude", label: "Claude", placeholder: "sk-ant-api03-..." },
-];
 
 type OnboardingStep = "backend" | "llm" | "resume";
 
 type OnboardingViewProps = {
   onComplete: () => void;
 };
-
-function providerLabel(provider: ProviderName): string {
-  return PROVIDERS.find((item) => item.id === provider)?.label ?? provider;
-}
 
 function ButtonSpinner() {
   return <span className="button-spinner" aria-hidden="true" />;
@@ -35,6 +26,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [baseUrls, setBaseUrls] = useState<Record<string, string>>({});
   const [models, setModels] = useState<Record<string, string>>({});
   const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
@@ -55,23 +47,27 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     setSettings(value);
     setModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? ""])));
     setAvailableModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels])));
+    setBaseUrls(Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? ""])));
     return value;
   };
 
-  const loadModels = async (provider: ProviderName, apiKey: string) => {
+  const loadModels = async (provider: ProviderName, apiKey?: string, baseUrl?: string) => {
     setLoadingModels((current) => ({ ...current, [provider]: true }));
     try {
-      const result = await api.providerModels(provider, apiKey);
+      const result = await api.providerModels(provider, {
+        apiKey: isLocalUrlProvider(provider) ? undefined : apiKey,
+        baseUrl: isLocalUrlProvider(provider) ? baseUrl || undefined : undefined,
+      });
       setAvailableModels((current) => ({ ...current, [provider]: result.models }));
     } catch {
-      // Key may still be incomplete or invalid; "Verify and save" surfaces the real error.
+      // Key/URL may still be incomplete or invalid; "Verify and save" surfaces the real error.
     } finally {
       setLoadingModels((current) => ({ ...current, [provider]: false }));
     }
   };
 
   useEffect(() => {
-    const pending = PROVIDERS.filter(({ id }) => (keys[id] ?? "").trim().length >= 8);
+    const pending = PROVIDERS.filter(({ id, kind }) => kind === "apiKey" && (keys[id] ?? "").trim().length >= 8);
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
       pending.forEach(({ id }) => void loadModels(id, keys[id].trim()));
@@ -79,8 +75,31 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     return () => window.clearTimeout(timer);
   }, [keys]);
 
+  useEffect(() => {
+    const pending = PROVIDERS.filter(({ id, kind }) => {
+      if (kind !== "localUrl") return false;
+      const typed = (baseUrls[id] ?? "").trim();
+      const saved = (settings?.providers.find((item) => item.provider === id)?.baseUrl ?? "").trim();
+      return typed !== saved;
+    });
+    if (!pending.length) return;
+    const timer = window.setTimeout(() => {
+      pending.forEach(({ id }) => void loadModels(id, undefined, (baseUrls[id] ?? "").trim()));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [baseUrls, settings]);
+
   const updateKey = (provider: ProviderName, apiKey: string) => {
     setKeys((current) => ({ ...current, [provider]: apiKey }));
+    setAvailableModels((current) => {
+      const next = { ...current };
+      delete next[provider];
+      return next;
+    });
+  };
+
+  const updateBaseUrl = (provider: ProviderName, baseUrl: string) => {
+    setBaseUrls((current) => ({ ...current, [provider]: baseUrl }));
     setAvailableModels((current) => {
       const next = { ...current };
       delete next[provider];
@@ -92,7 +111,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     const value = await loadProviderSettings();
     if (!value.providers.some((item) => item.isEnabled)) {
       setStep("llm");
-      setMessage("Add and verify at least one LLM key.");
+      setMessage("Add and verify at least one LLM provider.");
       return;
     }
 
@@ -147,8 +166,10 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   };
 
   const saveAndTestProvider = async (provider: ProviderName) => {
+    const local = isLocalUrlProvider(provider);
     const apiKey = (keys[provider] ?? "").trim();
-    if (!apiKey) {
+    const baseUrl = (baseUrls[provider] ?? "").trim();
+    if (!local && !apiKey) {
       setMessage(`Enter a ${providerLabel(provider)} key.`);
       return;
     }
@@ -156,22 +177,36 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     setBusy(`provider-${provider}`);
     setMessage(`Checking ${providerLabel(provider)}...`);
     try {
-      const test = await api.testProvider(provider, apiKey, models[provider]);
+      const test = await api.testProvider(provider, {
+        apiKey: local ? undefined : apiKey,
+        baseUrl: local ? baseUrl || undefined : undefined,
+        model: models[provider],
+      });
       if (test.status !== "success") {
         throw new Error(test.details || test.message || "LLM connection failed.");
       }
 
       let modelList = availableModels[provider] ?? [];
       try {
-        modelList = (await api.providerModels(provider, apiKey, true)).models;
+        modelList = (await api.providerModels(provider, {
+          apiKey: local ? undefined : apiKey,
+          baseUrl: local ? baseUrl || undefined : undefined,
+          refresh: true,
+        })).models;
       } catch {
         modelList = test.model ? [test.model] : modelList;
       }
 
       const model = test.model || models[provider] || modelList[0] || "";
-      await api.saveProvider(provider, apiKey, model, modelList, true);
+      await api.saveProvider(provider, {
+        apiKey: local ? undefined : apiKey,
+        baseUrl: local ? baseUrl : undefined,
+        defaultModel: model,
+        availableModels: modelList,
+        testAfterSave: true,
+      });
       await api.setDefaultProvider(provider, model);
-      setKeys((current) => ({ ...current, [provider]: "" }));
+      if (!local) setKeys((current) => ({ ...current, [provider]: "" }));
       setMessage(`${providerLabel(provider)} connected.`);
       await loadProviderSettings();
     } catch (error) {
@@ -183,7 +218,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
   const continueToResume = async () => {
     if (!enabledProviders.length) {
-      setMessage("Connect at least one LLM key.");
+      setMessage("Connect at least one LLM provider.");
       return;
     }
 
@@ -255,18 +290,35 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       </section>}
 
       {step === "llm" && <section className="onboarding-step">
-        <h2>Set up an LLM key</h2>
-        <p>At least one working key is required. ResuMorph verifies the connection before moving on.</p>
+        <h2>Set up an LLM</h2>
+        <p>At least one working provider is required. ResuMorph verifies the connection before moving on. Cloud keys are listed first; local Ollama is optional.</p>
         {PROVIDERS.map((provider) => {
           const config = settings?.providers.find((item) => item.provider === provider.id);
           const connection = providerConnection(config);
+          const local = provider.kind === "localUrl";
           return <section className="onboarding-provider" key={provider.id}>
             <div>
-              <strong>{provider.label}</strong>
+              <strong>{local ? "Local (Ollama), no API key needed" : provider.label}</strong>
               <span className={`provider-connection ${connection.className}`} title={connection.label}><span className="provider-lamp" />{connection.label}</span>
             </div>
-            <small>{config?.isEnabled ? config.keyMask : "No key saved"}</small>
-            <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => updateKey(provider.id, event.target.value)} disabled={busy !== null} />
+            {local ? <>
+              <small>{config?.isEnabled
+                ? (config.baseUrl ? `Saved URL: ${config.baseUrl}` : "Using env / default URL")
+                : "Optional — fully local generation"}</small>
+              <input
+                type="url"
+                value={baseUrls[provider.id] ?? ""}
+                placeholder={provider.placeholder}
+                onChange={(event) => updateBaseUrl(provider.id, event.target.value)}
+                disabled={busy !== null}
+                aria-label="Ollama base URL"
+              />
+              {config?.effectiveBaseUrl && <small className="muted">Requests go to {config.effectiveBaseUrl}</small>}
+              <p className="muted">Local model quality is usually lower than cloud providers, especially on smaller models. Leave blank to use the backend default.</p>
+            </> : <>
+              <small>{config?.isEnabled ? config.keyMask : "No key saved"}</small>
+              <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => updateKey(provider.id, event.target.value)} disabled={busy !== null} />
+            </>}
             {loadingModels[provider.id] ? <p className="muted">Loading available models...</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null}>
               <option value="">Choose model (default)</option>
               {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}

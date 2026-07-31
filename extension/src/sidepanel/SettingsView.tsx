@@ -1,12 +1,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
+import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
 import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
-
-const PROVIDERS: Array<{ id: ProviderName; label: string; placeholder: string }> = [
-  { id: "openai", label: "OpenAI", placeholder: "sk-..." },
-  { id: "gemini", label: "Gemini", placeholder: "AIza..." },
-  { id: "claude", label: "Claude", placeholder: "sk-ant-api03-..." },
-];
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
   { id: "scan", label: "Page scanning", description: "Extracts the vacancy context from the current page." },
@@ -35,6 +30,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [baseUrls, setBaseUrls] = useState<Record<string, string>>({});
   const [models, setModels] = useState<Record<string, string>>({});
   const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
@@ -53,6 +49,8 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       // (e.g. via the live-typing model lookup) instead of clobbering it.
       setModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? prev[item.provider] ?? ""])));
       setAvailableModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels.length ? item.availableModels : (prev[item.provider] ?? [])])));
+      // Saved baseUrl only — never put effectiveBaseUrl in the input (that would bake env into the DB on save).
+      setBaseUrls((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? prev[item.provider] ?? ""])));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load settings.");
     }
@@ -88,13 +86,23 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
 
   const config = (provider: ProviderName): ProviderConfig | undefined => settings?.providers.find((item) => item.provider === provider);
 
+  const typedBaseUrl = (provider: ProviderName): string | undefined => {
+    const value = (baseUrls[provider] ?? "").trim();
+    return value || undefined;
+  };
+
   const loadModels = async (provider: ProviderName, apiKey?: string, refresh = false) => {
-    if (!apiKey && !config(provider)?.isEnabled) return;
+    const local = isLocalUrlProvider(provider);
+    if (!local && !apiKey && !config(provider)?.isEnabled) return;
     setLoadingModels((value) => ({ ...value, [provider]: true }));
     try {
-      const result = await api.providerModels(provider, apiKey, refresh);
+      const result = await api.providerModels(provider, {
+        apiKey: local ? undefined : apiKey,
+        baseUrl: local ? typedBaseUrl(provider) : undefined,
+        refresh,
+      });
       setAvailableModels((value) => ({ ...value, [provider]: result.models }));
-      setMessage(`${result.models.length} text-generation models loaded for ${provider}.`);
+      setMessage(`${result.models.length} text-generation models loaded for ${providerLabel(provider)}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load models.");
     } finally {
@@ -103,7 +111,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   };
 
   useEffect(() => {
-    const pending = PROVIDERS.filter(({ id }) => (keys[id] ?? "").trim().length >= 8);
+    const pending = PROVIDERS.filter(({ id, kind }) => kind === "apiKey" && (keys[id] ?? "").trim().length >= 8);
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
       pending.forEach(({ id }) => void loadModels(id, keys[id].trim()));
@@ -111,8 +119,32 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     return () => window.clearTimeout(timer);
   }, [keys]);
 
+  useEffect(() => {
+    // Only probe when the user is editing a local URL (not when load() mirrors saved values).
+    const pending = PROVIDERS.filter(({ id, kind }) => {
+      if (kind !== "localUrl") return false;
+      const typed = (baseUrls[id] ?? "").trim();
+      const saved = (settings?.providers.find((item) => item.provider === id)?.baseUrl ?? "").trim();
+      return typed !== saved;
+    });
+    if (!pending.length) return;
+    const timer = window.setTimeout(() => {
+      pending.forEach(({ id }) => void loadModels(id));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [baseUrls, settings]);
+
   const updateKey = (provider: ProviderName, apiKey: string) => {
     setKeys((value) => ({ ...value, [provider]: apiKey }));
+    setAvailableModels((value) => {
+      const next = { ...value };
+      delete next[provider];
+      return next;
+    });
+  };
+
+  const updateBaseUrl = (provider: ProviderName, baseUrl: string) => {
+    setBaseUrls((value) => ({ ...value, [provider]: baseUrl }));
     setAvailableModels((value) => {
       const next = { ...value };
       delete next[provider];
@@ -145,17 +177,25 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   };
 
   const save = async (provider: ProviderName) => {
-    if (!keys[provider]) {
+    const local = isLocalUrlProvider(provider);
+    if (!local && !keys[provider]) {
       setMessage("Enter an API key before saving.");
       return;
     }
     setBusy(`save-${provider}`);
     try {
-      const saved = await api.saveProvider(provider, keys[provider], models[provider] || "", availableModels[provider] ?? [], true);
-      setKeys((value) => ({ ...value, [provider]: "" }));
+      const saved = await api.saveProvider(provider, {
+        apiKey: local ? undefined : keys[provider],
+        // Always send for localUrl so "" clears a previously saved URL.
+        baseUrl: local ? (baseUrls[provider] ?? "").trim() : undefined,
+        defaultModel: models[provider] || "",
+        availableModels: availableModels[provider] ?? [],
+        testAfterSave: true,
+      });
+      if (!local) setKeys((value) => ({ ...value, [provider]: "" }));
       setMessage(saved.lastTestStatus === "failed"
-        ? `${provider} key saved, but the connection test failed${saved.lastTestError ? `: ${saved.lastTestError}` : "."}`
-        : `${provider} key saved and connection verified.`);
+        ? `${providerLabel(provider)} saved, but the connection test failed${saved.lastTestError ? `: ${saved.lastTestError}` : "."}`
+        : `${providerLabel(provider)} saved and connection verified.`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save provider.");
@@ -173,7 +213,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     setBusy(`model-${provider}`);
     try {
       await api.saveProviderModel(provider, model, availableModels[provider] ?? []);
-      setMessage(`${provider} model saved.`);
+      setMessage(`${providerLabel(provider)} model saved.`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save model.");
@@ -188,7 +228,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     setBusy(`model-${provider}`);
     try {
       await api.saveProviderModel(provider, model.trim(), availableModels[provider] ?? []);
-      setMessage(`${provider} model changed to ${model.trim()}.`);
+      setMessage(`${providerLabel(provider)} model changed to ${model.trim()}.`);
       const value = await api.providers();
       setSettings(value);
     } catch (error) {
@@ -201,8 +241,13 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const test = async (provider: ProviderName) => {
     setBusy(`test-${provider}`);
     try {
-      const result = await api.testProvider(provider, keys[provider], models[provider]);
-      setMessage(`${provider}: ${result.message} (${result.latencyMs} ms)${result.details ? ` — ${result.details}` : ""}`);
+      const local = isLocalUrlProvider(provider);
+      const result = await api.testProvider(provider, {
+        apiKey: local ? undefined : keys[provider],
+        baseUrl: local ? typedBaseUrl(provider) : undefined,
+        model: models[provider],
+      });
+      setMessage(`${providerLabel(provider)}: ${result.message} (${result.latencyMs} ms)${result.details ? ` — ${result.details}` : ""}`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Connection test failed.");
@@ -238,15 +283,13 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.setDefaultProvider(defaultProvider, model);
       setSettings(value);
-      setMessage(`Default LLM changed to ${defaultProvider} / ${model}.`);
+      setMessage(`Default LLM changed to ${providerLabel(defaultProvider)} / ${model}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not set default.");
     } finally {
       setBusy(null);
     }
   };
-
-  const providerLabel = (provider: ProviderName): string => PROVIDERS.find((item) => item.id === provider)?.label ?? provider;
 
   const setTaskProvider = async (task: LlmTaskName, provider: ProviderName) => {
     const model = availableModels[provider]?.includes(settings?.taskSettings?.[task]?.model ?? "")
@@ -301,9 +344,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       await api.deleteProvider(provider);
       await load();
-      setMessage(`${providerLabel(provider)} key cleared.`);
+      setMessage(isLocalUrlProvider(provider)
+        ? `${providerLabel(provider)} configuration cleared.`
+        : `${providerLabel(provider)} key cleared.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not clear provider key.");
+      setMessage(error instanceof Error ? error.message : "Could not clear provider.");
     } finally {
       setBusy(null);
     }
@@ -348,28 +393,44 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       </label>
       {resumeText && <textarea className="resume-preview" readOnly value={resumeText} aria-label="Base resume text" />}
     </section> : activeTab === "llm" ? <section className="settings-panel">
-      <p className="muted">Keys are encrypted on the local backend. They are never stored in this extension.</p>
+      <p className="muted">Cloud keys are encrypted on the local backend. They are never stored in this extension. Ollama uses a base URL instead of a key.</p>
 
       {PROVIDERS.map((provider) => {
         const providerConfig = config(provider.id);
         const connection = providerConnection(providerConfig);
+        const local = provider.kind === "localUrl";
         return <section className="provider-card" key={provider.id}>
         <div className="provider-heading">
           <h3>{provider.label}</h3>
           <span className={`provider-connection ${connection.className}`} title={connection.label}><span className="provider-lamp" />{connection.label}</span>
         </div>
-        <small>{providerConfig?.keyMask ?? "No key saved"}</small>
-        <input type="password" placeholder={provider.placeholder} value={keys[provider.id] ?? ""} onChange={(event) => updateKey(provider.id, event.target.value)} />
+        {local ? <>
+          <small>{providerConfig?.isEnabled
+            ? (providerConfig.baseUrl ? `Saved URL: ${providerConfig.baseUrl}` : "Using env / default URL (nothing saved)")
+            : "No Ollama endpoint saved"}</small>
+          <input
+            type="url"
+            placeholder={provider.placeholder}
+            value={baseUrls[provider.id] ?? ""}
+            onChange={(event) => updateBaseUrl(provider.id, event.target.value)}
+            aria-label={`${provider.label} base URL`}
+          />
+          {providerConfig?.effectiveBaseUrl && <small className="muted">Requests go to {providerConfig.effectiveBaseUrl}</small>}
+          <p className="muted">Local models are usually less consistent than cloud providers, especially smaller ones. Rough or incomplete output is often a model-size limit, not a ResuMorph bug. Leave the URL blank to keep using the backend&apos;s env default (handy under Docker).</p>
+        </> : <>
+          <small>{providerConfig?.keyMask ?? "No key saved"}</small>
+          <input type="password" placeholder={provider.placeholder} value={keys[provider.id] ?? ""} onChange={(event) => updateKey(provider.id, event.target.value)} />
+        </>}
         {loadingModels[provider.id] ? <p className="muted">Loading available models…</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => void changeModel(provider.id, event.target.value)} disabled={busy !== null}>
           <option value="">Choose model</option>
           {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}
         </select> : <input placeholder="Model" value={models[provider.id] ?? ""} onChange={(event) => setModels((value) => ({ ...value, [provider.id]: event.target.value }))} />}
         <div className="actions">
-          <button className="primary" onClick={() => void save(provider.id)} disabled={busy !== null}>{busy === `save-${provider.id}` && <ButtonSpinner />}{busy === `save-${provider.id}` ? "Saving..." : "Save key"}</button>
+          <button className="primary" onClick={() => void save(provider.id)} disabled={busy !== null}>{busy === `save-${provider.id}` && <ButtonSpinner />}{busy === `save-${provider.id}` ? "Saving..." : local ? "Save" : "Save key"}</button>
           {providerConfig?.isEnabled && <button className="secondary" onClick={() => void saveModel(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `model-${provider.id}` && <ButtonSpinner />}{busy === `model-${provider.id}` ? "Saving..." : "Save model"}</button>}
           <button className="secondary" onClick={() => void test(provider.id)} disabled={busy !== null}>{busy === `test-${provider.id}` && <ButtonSpinner />}{busy === `test-${provider.id}` ? "Testing..." : "Test connection"}</button>
-          {providerConfig?.isEnabled && <button className="secondary" onClick={() => void loadModels(provider.id, undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
-          {providerConfig?.isEnabled && <button className="danger" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : "Clear key"}</button>}
+          {(providerConfig?.isEnabled || local) && <button className="secondary" onClick={() => void loadModels(provider.id, keys[provider.id] || undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
+          {providerConfig?.isEnabled && <button className="danger" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : local ? "Clear" : "Clear key"}</button>}
         </div>
       </section>;
       })}
@@ -378,7 +439,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
         <h3>Default LLM</h3>
         <select value={defaultProvider ?? ""} onChange={(event) => setSettings((current) => current ? { ...current, defaultProvider: event.target.value as ProviderName, defaultModel: "" } : current)}>
           <option value="">Choose provider</option>
-          {enabledProviders.map((item) => <option key={item.provider} value={item.provider}>{PROVIDERS.find((provider) => provider.id === item.provider)?.label}</option>)}
+          {enabledProviders.map((item) => <option key={item.provider} value={item.provider}>{providerLabel(item.provider)}</option>)}
         </select>
         <select value={settings?.defaultModel ?? ""} disabled={!defaultProvider || !defaultModels.length || busy !== null} onChange={(event) => void changeDefaultModel(event.target.value)}>
           <option value="">{defaultProvider && !defaultModels.length ? "No cached models — use Reload models" : "Choose model"}</option>
@@ -399,7 +460,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           </div>
           <p className="muted">{task.description}</p>
           <select value={provider ?? ""} disabled={busy !== null || enabledProviders.length === 0} onChange={(event) => void setTaskProvider(task.id, event.target.value as ProviderName)}>
-            <option value="">{enabledProviders.length ? "Choose configured LLM" : "No configured LLM keys"}</option>
+            <option value="">{enabledProviders.length ? "Choose configured LLM" : "No configured LLM yet"}</option>
             {enabledProviders.map((item) => <option key={item.provider} value={item.provider}>{providerLabel(item.provider)}</option>)}
           </select>
           <select value={taskSetting?.model ?? ""} disabled={busy !== null || !provider || modelsForProvider.length === 0} onChange={(event) => void setTaskModel(task.id, event.target.value)}>
