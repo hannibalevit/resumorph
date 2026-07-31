@@ -51,12 +51,18 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     return value;
   };
 
-  const loadModels = async (provider: ProviderName, apiKey?: string, baseUrl?: string) => {
+  const loadModels = async (
+    provider: ProviderName,
+    apiKey?: string,
+    baseUrl?: string,
+    refresh = false,
+  ) => {
     setLoadingModels((current) => ({ ...current, [provider]: true }));
     try {
       const result = await api.providerModels(provider, {
         apiKey: isLocalUrlProvider(provider) ? undefined : apiKey,
         baseUrl: isLocalUrlProvider(provider) ? baseUrl || undefined : undefined,
+        refresh,
       });
       setAvailableModels((current) => ({ ...current, [provider]: result.models }));
     } catch {
@@ -84,7 +90,8 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     });
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
-      pending.forEach(({ id }) => void loadModels(id, undefined, (baseUrls[id] ?? "").trim()));
+      // refresh=true so the backend probes the typed URL instead of returning the cached list.
+      pending.forEach(({ id }) => void loadModels(id, undefined, (baseUrls[id] ?? "").trim(), true));
     }, 500);
     return () => window.clearTimeout(timer);
   }, [baseUrls, settings]);
@@ -311,7 +318,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
                 placeholder={provider.placeholder}
                 onChange={(event) => updateBaseUrl(provider.id, event.target.value)}
                 disabled={busy !== null}
-                aria-label="Ollama base URL"
+                aria-label={`${provider.label} base URL`}
               />
               {config?.effectiveBaseUrl && <small className="muted">Requests go to {config.effectiveBaseUrl}</small>}
               <p className="muted">Local model quality is usually lower than cloud providers, especially on smaller models. Leave blank to use the backend default.</p>

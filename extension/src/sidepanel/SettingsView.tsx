@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
 import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
@@ -24,6 +24,16 @@ function providerConnection(config: ProviderConfig | undefined): { className: st
   return { className: "idle", label: "Not connected" };
 }
 
+/** Absolute http(s) URL — used so mid-typing values like "http://loc" are not probed. */
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<"resume" | "llm" | "tasks" | "general">("general");
   const [theme, setTheme] = useState<ThemePreference>("light");
@@ -38,6 +48,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [resumeText, setResumeText] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  // Compare typed URLs against saved values without putting `settings` in the
+  // debounce effect deps (test → load would otherwise re-probe 500ms later).
+  const savedBaseUrlsRef = useRef<Record<string, string>>({});
 
   const load = async () => {
     try {
@@ -50,6 +63,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       setModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? prev[item.provider] ?? ""])));
       setAvailableModels((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels.length ? item.availableModels : (prev[item.provider] ?? [])])));
       // Saved baseUrl only — never put effectiveBaseUrl in the input (that would bake env into the DB on save).
+      savedBaseUrlsRef.current = Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? ""]));
       setBaseUrls((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? prev[item.provider] ?? ""])));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load settings.");
@@ -91,8 +105,14 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     return value || undefined;
   };
 
-  const loadModels = async (provider: ProviderName, apiKey?: string, refresh = false) => {
+  const loadModels = async (
+    provider: ProviderName,
+    apiKey?: string,
+    refresh = false,
+    options?: { quiet?: boolean },
+  ) => {
     const local = isLocalUrlProvider(provider);
+    const quiet = options?.quiet ?? false;
     if (!local && !apiKey && !config(provider)?.isEnabled) return;
     setLoadingModels((value) => ({ ...value, [provider]: true }));
     try {
@@ -102,9 +122,15 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
         refresh,
       });
       setAvailableModels((value) => ({ ...value, [provider]: result.models }));
-      setMessage(`${result.models.length} text-generation models loaded for ${providerLabel(provider)}.`);
+      if (!quiet) {
+        setMessage(`${result.models.length} text-generation models loaded for ${providerLabel(provider)}.`);
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load models.");
+      // Live URL/key preview swallows errors (same as Onboarding) so mid-typing
+      // does not flash a toast; Save / Test / Reload still surface them.
+      if (!quiet) {
+        setMessage(error instanceof Error ? error.message : "Could not load models.");
+      }
     } finally {
       setLoadingModels((value) => ({ ...value, [provider]: false }));
     }
@@ -114,25 +140,29 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     const pending = PROVIDERS.filter(({ id, kind }) => kind === "apiKey" && (keys[id] ?? "").trim().length >= 8);
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
-      pending.forEach(({ id }) => void loadModels(id, keys[id].trim()));
+      pending.forEach(({ id }) => void loadModels(id, keys[id].trim(), false, { quiet: true }));
     }, 500);
     return () => window.clearTimeout(timer);
   }, [keys]);
 
   useEffect(() => {
     // Only probe when the user is editing a local URL (not when load() mirrors saved values).
+    // refresh=true so the backend does not return the previous host's cached model list.
     const pending = PROVIDERS.filter(({ id, kind }) => {
       if (kind !== "localUrl") return false;
       const typed = (baseUrls[id] ?? "").trim();
-      const saved = (settings?.providers.find((item) => item.provider === id)?.baseUrl ?? "").trim();
-      return typed !== saved;
+      const saved = (savedBaseUrlsRef.current[id] ?? "").trim();
+      if (typed === saved) return false;
+      // Blank means "use env/default" — still worth refreshing the pulled list.
+      if (!typed) return true;
+      return isAbsoluteHttpUrl(typed);
     });
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
-      pending.forEach(({ id }) => void loadModels(id));
+      pending.forEach(({ id }) => void loadModels(id, undefined, true, { quiet: true }));
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [baseUrls, settings]);
+  }, [baseUrls]);
 
   const updateKey = (provider: ProviderName, apiKey: string) => {
     setKeys((value) => ({ ...value, [provider]: apiKey }));
@@ -178,24 +208,33 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
 
   const save = async (provider: ProviderName) => {
     const local = isLocalUrlProvider(provider);
-    if (!local && !keys[provider]) {
+    const apiKey = local ? undefined : keys[provider];
+    if (!local && !apiKey) {
       setMessage("Enter an API key before saving.");
       return;
     }
     setBusy(`save-${provider}`);
     try {
-      const saved = await api.saveProvider(provider, {
-        apiKey: local ? undefined : keys[provider],
+      await api.saveProvider(provider, {
+        apiKey,
         // Always send for localUrl so "" clears a previously saved URL.
         baseUrl: local ? (baseUrls[provider] ?? "").trim() : undefined,
         defaultModel: models[provider] || "",
         availableModels: availableModels[provider] ?? [],
-        testAfterSave: true,
+        // Test via the client below so we can surface rawTextPreview (e.g. model not pulled).
+        testAfterSave: false,
       });
       if (!local) setKeys((value) => ({ ...value, [provider]: "" }));
-      setMessage(saved.lastTestStatus === "failed"
-        ? `${providerLabel(provider)} saved, but the connection test failed${saved.lastTestError ? `: ${saved.lastTestError}` : "."}`
-        : `${providerLabel(provider)} saved and connection verified.`);
+      const result = await api.testProvider(provider, {
+        // Key was just saved; omit so the backend uses the persisted key.
+        apiKey: undefined,
+        baseUrl: local ? typedBaseUrl(provider) : undefined,
+        model: models[provider],
+      });
+      const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
+      setMessage(result.status === "failed"
+        ? `${providerLabel(provider)} saved, but the connection test failed: ${result.details || result.message}${preview}`
+        : `${providerLabel(provider)} saved and connection verified (${result.latencyMs} ms)${preview}`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save provider.");
@@ -242,12 +281,16 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     setBusy(`test-${provider}`);
     try {
       const local = isLocalUrlProvider(provider);
+      const typedKey = (keys[provider] ?? "").trim();
       const result = await api.testProvider(provider, {
-        apiKey: local ? undefined : keys[provider],
+        // Only send a complete key; short/half-typed values 422 on the backend.
+        apiKey: local ? undefined : (typedKey.length >= 8 ? typedKey : undefined),
         baseUrl: local ? typedBaseUrl(provider) : undefined,
         model: models[provider],
       });
-      setMessage(`${providerLabel(provider)}: ${result.message} (${result.latencyMs} ms)${result.details ? ` — ${result.details}` : ""}`);
+      const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
+      const details = result.details ? ` — ${result.details}` : "";
+      setMessage(`${providerLabel(provider)}: ${result.message} (${result.latencyMs} ms)${details}${preview}`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Connection test failed.");
@@ -416,7 +459,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
             aria-label={`${provider.label} base URL`}
           />
           {providerConfig?.effectiveBaseUrl && <small className="muted">Requests go to {providerConfig.effectiveBaseUrl}</small>}
-          <p className="muted">Local models are usually less consistent than cloud providers, especially smaller ones. Rough or incomplete output is often a model-size limit, not a ResuMorph bug. Leave the URL blank to keep using the backend&apos;s env default (handy under Docker).</p>
+          <p className="muted">Local models are usually less consistent than cloud providers, especially smaller ones. Rough or incomplete output is often a model-size limit, not a ResuMorph bug. The first generation can take a few minutes while the model loads into memory — a long spinner is often a cold start, not a hang. Leave the URL blank to keep using the backend&apos;s env default (handy under Docker).</p>
         </> : <>
           <small>{providerConfig?.keyMask ?? "No key saved"}</small>
           <input type="password" placeholder={provider.placeholder} value={keys[provider.id] ?? ""} onChange={(event) => updateKey(provider.id, event.target.value)} />
@@ -429,7 +472,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <button className="primary" onClick={() => void save(provider.id)} disabled={busy !== null}>{busy === `save-${provider.id}` && <ButtonSpinner />}{busy === `save-${provider.id}` ? "Saving..." : local ? "Save" : "Save key"}</button>
           {providerConfig?.isEnabled && <button className="secondary" onClick={() => void saveModel(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `model-${provider.id}` && <ButtonSpinner />}{busy === `model-${provider.id}` ? "Saving..." : "Save model"}</button>}
           <button className="secondary" onClick={() => void test(provider.id)} disabled={busy !== null}>{busy === `test-${provider.id}` && <ButtonSpinner />}{busy === `test-${provider.id}` ? "Testing..." : "Test connection"}</button>
-          {(providerConfig?.isEnabled || local) && <button className="secondary" onClick={() => void loadModels(provider.id, keys[provider.id] || undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
+          {(providerConfig?.isEnabled || local) && <button className="secondary" onClick={() => void loadModels(provider.id, undefined, true)} disabled={busy !== null || loadingModels[provider.id]}>{loadingModels[provider.id] && <ButtonSpinner />}{loadingModels[provider.id] ? "Loading..." : "Reload models"}</button>}
           {providerConfig?.isEnabled && <button className="danger" onClick={() => void deleteProvider(provider.id)} disabled={busy !== null}>{busy === `delete-${provider.id}` && <ButtonSpinner />}{busy === `delete-${provider.id}` ? "Clearing..." : local ? "Clear" : "Clear key"}</button>}
         </div>
       </section>;
