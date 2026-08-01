@@ -106,10 +106,27 @@ class OllamaProvider(LlmProvider):
         return parse_json_response(text)
 
     async def test_connection(self, api_key: str, model: str | None = None) -> dict[str, Any]:
+        """Reachability alone is not a pass: generation still fails without the model.
+
+        Raising here is what makes the route report ``status: "failed"``, so a host
+        that answers ``/api/tags`` with nothing usable can no longer be saved as a
+        working provider.
+        """
         models = await self.list_models(api_key)
-        preview = f"reachable; {len(models)} model(s)"
-        if model and model not in models and models:
-            preview = f"reachable; model {model!r} not in pulled list ({len(models)} available)"
-        elif model and model in models:
-            preview = f"reachable; model {model!r} available"
+        if not models:
+            raise ValueError(
+                "Ollama is reachable, but no models are pulled. "
+                "Run `ollama pull <model>` and test again."
+            )
+        if model and model not in models:
+            available = ", ".join(models[:5])
+            raise ValueError(
+                f"Ollama is reachable, but model {model!r} is not pulled. "
+                f"Available ({len(models)}): {available}."
+            )
+        preview = (
+            f"reachable; model {model!r} available"
+            if model
+            else f"reachable; {len(models)} model(s)"
+        )
         return {"rawTextPreview": preview[:100]}

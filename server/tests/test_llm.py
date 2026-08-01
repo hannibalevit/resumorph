@@ -463,6 +463,27 @@ async def test_ollama_test_connection(monkeypatch) -> None:
     assert "llama3.2" in result["rawTextPreview"]
 
 
+async def test_ollama_test_connection_fails_when_no_models_pulled(monkeypatch) -> None:
+    """Reachable but empty is a failure — generation would 404 on every request."""
+    _patch_ollama_httpx(monkeypatch, get_payload={"models": []})
+    with pytest.raises(ValueError, match="no models are pulled"):
+        await OllamaProvider(base_url="http://localhost:11434").test_connection("", "llama3.2")
+
+
+async def test_ollama_test_connection_fails_when_model_not_pulled(monkeypatch) -> None:
+    _patch_ollama_httpx(monkeypatch, get_payload={"models": [{"name": "llama3.2"}]})
+    with pytest.raises(ValueError, match="is not pulled") as exc:
+        await OllamaProvider(base_url="http://localhost:11434").test_connection("", "missing-model")
+    # The pulled list is named so the user can fix it without leaving the panel.
+    assert "llama3.2" in str(exc.value)
+
+
+async def test_ollama_test_connection_without_model_only_needs_one_pulled(monkeypatch) -> None:
+    _patch_ollama_httpx(monkeypatch, get_payload={"models": [{"name": "llama3.2"}]})
+    result = await OllamaProvider(base_url="http://localhost:11434").test_connection("")
+    assert result["rawTextPreview"] == "reachable; 1 model(s)"
+
+
 async def test_ollama_generate_json_rejects_empty_content(monkeypatch) -> None:
     _patch_ollama_httpx(monkeypatch, post_payload={"message": {"content": "  "}})
     with pytest.raises(ValueError, match="empty chat response"):
