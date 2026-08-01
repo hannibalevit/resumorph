@@ -1,7 +1,11 @@
 import { BACKEND_CONNECTED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, getApiBaseUrl, isExtensionEnabled } from "../shared/storage";
 import { isBlockedUrl } from "../shared/blockedSites";
+import { GENERATION_TIMEOUT_MS, isRequestCancelled, PROBE_TIMEOUT_MS, withAbort } from "../shared/requestTimeout";
 
 const HEALTH_CHECK_ALARM = "healthCheck";
+// Content scripts can't easily import the API client, so field answers are proxied
+// here — the controller lets the in-page button cancel a generation it started.
+const fieldAnswerRequests = new Map<string, AbortController>();
 type IconVariant = "black" | "white" | "gray" | "red";
 
 // chrome.action.setIcon fetches each path itself; relative paths resolve
@@ -53,7 +57,7 @@ async function checkBackendHealth(): Promise<void> {
   let connected = false;
   try {
     const apiBaseUrl = await getApiBaseUrl();
-    const response = await fetch(`${apiBaseUrl}/health`);
+    const response = await withAbort(PROBE_TIMEOUT_MS, null, (signal) => fetch(`${apiBaseUrl}/health`, { signal }));
     connected = response.ok;
   } catch {
     connected = false;
@@ -127,22 +131,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void chrome.storage.local.get("activeJobSessionId").then((value) => sendResponse({ jobSessionId: value.activeJobSessionId }));
     return true;
   }
+  if (message.type === "CANCEL_FIELD_ANSWER") {
+    fieldAnswerRequests.get(String(message.requestId))?.abort();
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message.type === "GENERATE_FIELD_ANSWER") {
     void (async () => {
+      const requestId = String(message.requestId ?? "");
+      const controller = new AbortController();
+      if (requestId) fieldAnswerRequests.set(requestId, controller);
       try {
         if (isBlockedUrl(sender.tab?.url)) throw new Error("This site isn't related to job search, so ResuMorph is disabled here.");
         if (!await isExtensionEnabled()) throw new Error("ResuMorph is disabled.");
         const apiBaseUrl = await getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/job-sessions/${message.jobSessionId}/generate-field-answer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ field: message.field, tone: "professional", maxLength: 1200 }),
+        const payload = await withAbort(GENERATION_TIMEOUT_MS, controller.signal, async (signal) => {
+          const response = await fetch(`${apiBaseUrl}/api/job-sessions/${message.jobSessionId}/generate-field-answer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ field: message.field, tone: "professional", maxLength: 1200 }),
+            signal,
+          });
+          const body = await response.json().catch(() => ({})) as { answer?: string; warnings?: string[]; error?: { message?: string } };
+          if (!response.ok) throw new Error(body.error?.message ?? `Backend returned ${response.status}`);
+          return body;
         });
-        const payload = await response.json().catch(() => ({})) as { answer?: string; warnings?: string[]; error?: { message?: string } };
-        if (!response.ok) throw new Error(payload.error?.message ?? `Backend returned ${response.status}`);
         sendResponse({ answer: payload.answer ?? "", warnings: payload.warnings ?? [] });
       } catch (error) {
-        sendResponse({ error: error instanceof Error ? error.message : "Could not reach the ResuMorph backend." });
+        // A cancel is the user's own doing — the in-page button must not alert on it.
+        if (isRequestCancelled(error)) sendResponse({ cancelled: true });
+        else sendResponse({ error: error instanceof Error ? error.message : "Could not reach the ResuMorph backend." });
+      } finally {
+        if (requestId) fieldAnswerRequests.delete(requestId);
       }
     })();
     return true;

@@ -6,8 +6,13 @@ const BUTTON_CLASS = "resumorph-ai-button";
 const BUTTON_ICON = chrome.runtime.getURL("icons/icon-32.png");
 const BUTTON_INSET = 5;
 const BUTTON_MAX_SIZE = 26;
+const GENERATE_LABEL = "Generate answer with ResuMorph";
+const CANCEL_LABEL = "Cancel generating answer";
 const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
 const INVALIDATED_CONTEXT = /extension context invalidated|context invalidated/i;
+// A cancel clicked before the request reaches the service worker (waking it can
+// take a moment) has nothing to abort there, so it is also recorded here.
+const cancelledRequests = new Set<string>();
 
 async function isExtensionEnabled(): Promise<boolean> {
   if (isBlockedUrl(window.location.href)) return false;
@@ -15,10 +20,10 @@ async function isExtensionEnabled(): Promise<boolean> {
   return result[EXTENSION_ENABLED_STORAGE_KEY] !== false;
 }
 
-async function generateFieldAnswer(jobSessionId: string, field: DetectedFormField): Promise<{ answer: string; warnings: string[] }> {
-  const payload = await chrome.runtime.sendMessage({ type: "GENERATE_FIELD_ANSWER", jobSessionId, field }) as { answer?: string; warnings?: string[]; error?: string };
+async function generateFieldAnswer(jobSessionId: string, field: DetectedFormField, requestId: string): Promise<{ answer: string; warnings: string[]; cancelled: boolean }> {
+  const payload = await chrome.runtime.sendMessage({ type: "GENERATE_FIELD_ANSWER", jobSessionId, field, requestId }) as { answer?: string; warnings?: string[]; error?: string; cancelled?: boolean };
   if (payload.error) throw new Error(payload.error);
-  return { answer: payload.answer ?? "", warnings: payload.warnings ?? [] };
+  return { answer: payload.answer ?? "", warnings: payload.warnings ?? [], cancelled: payload.cancelled === true };
 }
 
 function isInvalidatedContextError(error: unknown): boolean {
@@ -51,7 +56,7 @@ function styles(): void {
   if (document.getElementById("resumorph-ai-styles")) return;
   const style = document.createElement("style");
   style.id = "resumorph-ai-styles";
-  style.textContent = `.${BUTTON_CLASS}{position:fixed;z-index:2147483646;display:grid;place-items:center;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;cursor:pointer;overflow:hidden;box-sizing:border-box}.${BUTTON_CLASS}[hidden]{display:none!important}.${BUTTON_CLASS}:focus-visible{outline:2px solid #0a66c2;outline-offset:2px}.${BUTTON_CLASS}:disabled{cursor:wait;opacity:.7}.${BUTTON_CLASS} img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}`;
+  style.textContent = `.${BUTTON_CLASS}{position:fixed;z-index:2147483646;display:grid;place-items:center;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;cursor:pointer;overflow:hidden;box-sizing:border-box}.${BUTTON_CLASS}[hidden]{display:none!important}.${BUTTON_CLASS}:focus-visible{outline:2px solid #0a66c2;outline-offset:2px}.${BUTTON_CLASS}:disabled{cursor:wait;opacity:.7}.${BUTTON_CLASS} img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}.${BUTTON_CLASS}[data-generating] img{opacity:.35}.${BUTTON_CLASS}[data-generating]::after{content:"";position:absolute;inset:0;border:2px solid #0a66c2;border-right-color:transparent;border-radius:50%;animation:resumorph-spin .8s linear infinite;pointer-events:none}@keyframes resumorph-spin{to{transform:rotate(360deg)}}`;
   document.documentElement.append(style);
 }
 
@@ -86,13 +91,34 @@ function insertValue(element: HTMLElement, value: string): void {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function setIdle(button: HTMLButtonElement): void {
+  delete button.dataset.requestId;
+  delete button.dataset.generating;
+  button.setAttribute("aria-label", GENERATE_LABEL);
+  button.title = GENERATE_LABEL;
+}
+
+// A local model can hold this for minutes, so the button stays enabled while it
+// runs and a second click cancels instead of queueing another generation.
 async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise<void> {
-  button.disabled = true;
-  button.setAttribute("aria-label", "Generating answer");
+  const running = button.dataset.requestId;
+  if (running) {
+    cancelledRequests.add(running);
+    void chrome.runtime.sendMessage({ type: "CANCEL_FIELD_ANSWER", requestId: running }).catch(() => undefined);
+    return;
+  }
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  button.dataset.requestId = requestId;
+  button.dataset.generating = "true";
+  button.setAttribute("aria-label", CANCEL_LABEL);
+  button.title = CANCEL_LABEL;
   try {
     const active = await chrome.runtime.sendMessage({ type: "GET_ACTIVE_JOB_SESSION" }) as { jobSessionId?: string };
+    if (cancelledRequests.has(requestId)) return;
     if (!active.jobSessionId) throw new Error("Open ResuMorph and scan or select a job first.");
-    const response = await generateFieldAnswer(active.jobSessionId, field);
+    const response = await generateFieldAnswer(active.jobSessionId, field, requestId);
+    if (response.cancelled || cancelledRequests.has(requestId)) return;
     if (!response.answer) throw new Error(response.warnings[0] ?? "No safe answer was generated.");
     const element = findField(field.fieldId);
     if (!element) throw new Error("The form field is no longer available. Refresh the page and try again.");
@@ -105,9 +131,8 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
       alert(error instanceof Error ? error.message : "Could not generate an answer.");
     }
   } finally {
-    if (!button.isConnected) return;
-    button.disabled = false;
-    button.setAttribute("aria-label", "Generate answer with ResuMorph");
+    cancelledRequests.delete(requestId);
+    if (button.isConnected) setIdle(button);
   }
 }
 
@@ -159,7 +184,7 @@ function mountInlineAssistantAfterSettle(): void {
       button.type = "button";
       button.className = BUTTON_CLASS;
       button.dataset.fieldId = field.fieldId;
-      button.setAttribute("aria-label", "Generate answer with ResuMorph");
+      setIdle(button);
       const icon = document.createElement("img");
       icon.src = BUTTON_ICON;
       icon.alt = "";

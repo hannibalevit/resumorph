@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
+import { isRequestCancelled } from "../shared/requestTimeout";
 import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type ThemePreference } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
@@ -10,6 +11,8 @@ import { SettingsView } from "./SettingsView";
 type ActiveTab = { id?: number; url?: string; title?: string };
 type BackendStatus = "checking" | "connected" | "disconnected";
 type BusyState = "scan" | "manualScan" | "resume" | "coverLetter" | "reconnect" | "download" | null;
+// LLM-backed actions: minutes on a cold local model, so each one is cancellable.
+const CANCELLABLE_ACTIONS: BusyState[] = ["scan", "manualScan", "resume", "coverLetter"];
 const MAX_SCAN_TEXT_LENGTH = 80_000;
 const MIN_MANUAL_TEXTAREA_HEIGHT = 56;
 const MAX_MANUAL_TEXTAREA_HEIGHT = 260;
@@ -117,6 +120,7 @@ export function App() {
   const [coverLetterCopied, setCoverLetterCopied] = useState(false);
   const manualTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const copiedTimeoutRef = useRef<number | null>(null);
+  const inFlightRef = useRef<AbortController | null>(null);
   const manualTextKey = useMemo(() => activeSession?.id ?? `tab:${activeTab.url || activeTab.id || "manual"}`, [activeSession?.id, activeTab.id, activeTab.url]);
   const manualJobText = manualTextByJobKey[manualTextKey] ?? "";
   const coverLetterBody = typeof coverLetter?.contentJson.body === "string" ? coverLetter.contentJson.body : "";
@@ -256,6 +260,26 @@ export function App() {
     if (copiedTimeoutRef.current) window.clearTimeout(copiedTimeoutRef.current);
   }, []);
 
+  // A local model can hold a generation for minutes, so aborting the fetch is the
+  // only way out. The controller is created before the first await so a cancel
+  // during page extraction still short-circuits the backend call that follows.
+  const startCancellable = (): AbortController => {
+    const controller = new AbortController();
+    inFlightRef.current = controller;
+    return controller;
+  };
+
+  const cancelInFlight = () => {
+    if (!inFlightRef.current) return;
+    inFlightRef.current.abort();
+    setStatus("Cancelling...");
+  };
+
+  const reportFailure = (error: unknown, fallback: string) => {
+    if (isRequestCancelled(error)) { setStatus("Cancelled."); return; }
+    setStatus(error instanceof Error ? error.message : fallback);
+  };
+
   const toggleExtension = async () => {
     const next = !extensionActive;
     setExtensionActive(next);
@@ -265,17 +289,18 @@ export function App() {
 
   const scan = async () => {
     if (!activeTab.id) return;
+    const controller = startCancellable();
     setBusy("scan"); setStatus("Scanning the page…");
     try {
       const response = await requestPageSnapshot(activeTab.id) as { snapshot?: unknown; error?: string };
       if (response.error) throw new Error(response.error);
       if (!response.snapshot) throw new Error("The page scanner did not return a snapshot. Refresh the page and try again.");
-      setStatus("Extracting the job context…"); const session = await api.scan(response.snapshot as Parameters<typeof api.scan>[0]);
+      setStatus("Extracting the job context…"); const session = await api.scan(response.snapshot as Parameters<typeof api.scan>[0], { signal: controller.signal });
       openSession(session.id);
       await refreshSessions(); setActiveSession(session); void chrome.runtime.sendMessage({ type: "SET_ACTIVE_JOB_SESSION", jobSessionId: session.id });
       setStatus("Job session saved.");
-    } catch (error) { setStatus(error instanceof Error ? error.message : "The page could not be scanned."); }
-    finally { setBusy(null); }
+    } catch (error) { reportFailure(error, "The page could not be scanned."); }
+    finally { inFlightRef.current = null; setBusy(null); }
   };
 
   const scanManualText = async () => {
@@ -285,13 +310,14 @@ export function App() {
       return;
     }
 
+    const controller = startCancellable();
     setBusy("manualScan");
     setStatus("Extracting the job context from pasted text...");
     try {
       const isRescan = Boolean(activeSession);
       const previousManualTextKey = manualTextKey;
       const snapshot = createManualPageSnapshot(text, activeTab, activeSession);
-      const session = await api.scan(snapshot);
+      const session = await api.scan(snapshot, { signal: controller.signal });
       openSession(session.id);
       await refreshSessions();
       setActiveSession(session);
@@ -305,8 +331,9 @@ export function App() {
       const savedMessage = isRescan ? "Job session rescanned from pasted text." : "Job session saved from pasted text.";
       setStatus(text.length > MAX_SCAN_TEXT_LENGTH ? `${savedMessage} Text was truncated to 80,000 characters.` : savedMessage);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "The pasted text could not be scanned.");
+      reportFailure(error, "The pasted text could not be scanned.");
     } finally {
+      inFlightRef.current = null;
       setBusy(null);
     }
   };
@@ -314,31 +341,33 @@ export function App() {
   const generateResume = async () => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
+    const controller = startCancellable();
     setBusy("resume"); setStatus("Generating resume…");
     try {
-      const file = await api.generateResume(sessionId);
+      const file = await api.generateResume(sessionId, { signal: controller.signal });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);
       await refreshSessions();
       setStatus("Generated file is ready for download.");
-    } catch (error) { setStatus(error instanceof Error ? error.message : "Generation failed."); }
-    finally { setBusy(null); }
+    } catch (error) { reportFailure(error, "Generation failed."); }
+    finally { inFlightRef.current = null; setBusy(null); }
   };
 
   const generateCoverLetter = async () => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
+    const controller = startCancellable();
     setBusy("coverLetter"); setStatus("Generating cover letter...");
     try {
-      const file = await api.generateCoverLetter(sessionId);
+      const file = await api.generateCoverLetter(sessionId, { signal: controller.signal });
       const [updated, detail] = await Promise.all([api.session(sessionId), api.artifact(file.artifactId)]);
       setActiveSession(updated);
       setCoverLetter(detail);
       await refreshSessions();
       setStatus("Cover letter generated.");
-    } catch (error) { setStatus(error instanceof Error ? error.message : "Cover letter generation failed."); }
-    finally { setBusy(null); }
+    } catch (error) { reportFailure(error, "Cover letter generation failed."); }
+    finally { inFlightRef.current = null; setBusy(null); }
   };
 
   const copyCoverLetter = async () => {
@@ -386,6 +415,7 @@ export function App() {
   );
   const hasResumeArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "resume"));
   const hasCoverLetterArtifact = Boolean(activeSession?.artifacts.some((artifact) => artifact.artifactType === "cover_letter"));
+  const cancellable = CANCELLABLE_ACTIONS.includes(busy);
   const siteBlocked = isBlockedUrl(activeTab.url);
   const actionsDisabled = busy !== null || backend !== "connected" || !extensionActive || siteBlocked;
   const manualScanDisabled = busy !== null || backend !== "connected" || !extensionActive || !manualJobText.trim();
@@ -416,7 +446,10 @@ export function App() {
         <button className="secondary compact" onClick={() => void scanManualText()} disabled={manualScanDisabled}>{busy === "manualScan" && <ButtonSpinner />}{busy === "manualScan" ? "Sending..." : activeSession ? "Rescan from pasted text" : "Scan pasted text"}</button>
       </div>
     </details>
-    {status && <p className="status" role="status">{status}</p>}
+    {(status || cancellable) && <div className="status-row">
+      {status && <p className="status" role="status">{status}</p>}
+      {cancellable && <button className="secondary compact" type="button" onClick={cancelInFlight}>Cancel</button>}
+    </div>}
     <nav className="tabs" aria-label="Job sessions">{visibleSessions.length === 0 ? <span className="empty">No open job tabs</span> : visibleSessions.map((session) => <div key={session.id} className={session.id === activeSession?.id ? "tab-wrap active" : "tab-wrap"}><button className="tab" onClick={() => void selectSession(session.id)} title={tabName(session)}>{tabName(session)}</button><button className="close-tab" aria-label={`Close ${tabName(session)}`} title="Close tab" onClick={() => void closeSession(session.id)}>×</button></div>)}</nav>
     {!activeSession ? (siteBlocked ? <section className="neutral"><h2>Not a job site</h2><p>ResuMorph is disabled on this site because it isn't related to job search.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section> : <section className="neutral"><h2>Scan a vacancy</h2><p>Open a job listing or application page, then scan it. The extension never scans or sends page data without your click.</p><small>Current: {activeTab.title || activeTab.url || "No browser page"}</small></section>) : <section className="job">
       <div className="job-title"><div><h2>{context?.positionTitle || "Untitled role"}</h2><p>{context?.companyName || "Unknown company"}{context?.location ? ` · ${context.location}` : ""}</p></div></div>
