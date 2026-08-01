@@ -2,6 +2,7 @@ import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
 import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
+import { NoticeLine, useNotice } from "./notice";
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
   { id: "scan", label: "Page scanning", description: "Extracts the vacancy context from the current page." },
@@ -46,7 +47,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
   const [resumePresent, setResumePresent] = useState(false);
   const [resumeText, setResumeText] = useState("");
-  const [message, setMessage] = useState("");
+  const { notice, notify, notifyError } = useNotice();
   const [busy, setBusy] = useState<string | null>(null);
   // Compare typed URLs against saved values without putting `settings` in the
   // debounce effect deps (test → load would otherwise re-probe 500ms later).
@@ -66,7 +67,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       savedBaseUrlsRef.current = Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? ""]));
       setBaseUrls((prev) => Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? prev[item.provider] ?? ""])));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not load settings.");
+      notifyError(error instanceof Error ? error.message : "Could not load settings.");
     }
   };
 
@@ -123,13 +124,13 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       });
       setAvailableModels((value) => ({ ...value, [provider]: result.models }));
       if (!quiet) {
-        setMessage(`${result.models.length} text-generation models loaded for ${providerLabel(provider)}.`);
+        notify(`${result.models.length} text-generation models loaded for ${providerLabel(provider)}.`);
       }
     } catch (error) {
       // Live URL/key preview swallows errors (same as Onboarding) so mid-typing
       // does not flash a toast; Save / Test / Reload still surface them.
       if (!quiet) {
-        setMessage(error instanceof Error ? error.message : "Could not load models.");
+        notifyError(error instanceof Error ? error.message : "Could not load models.");
       }
     } finally {
       setLoadingModels((value) => ({ ...value, [provider]: false }));
@@ -187,7 +188,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     const file = event.target.files?.[0];
     if (!file) return;
     setBusy("resume");
-    setMessage("Reading base resume…");
+    notify("Reading base resume…");
     try {
       let text: string;
       if (/\.(txt|md)$/i.test(file.name)) text = await file.text();
@@ -198,9 +199,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       setResumePresent(true);
       setResumeText(text);
       onResumeSaved?.();
-      setMessage("Base resume saved securely on the local backend.");
+      notify("Base resume saved securely on the local backend.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not upload the base resume.");
+      notifyError(error instanceof Error ? error.message : "Could not upload the base resume.");
     } finally {
       setBusy(null);
       event.target.value = "";
@@ -211,7 +212,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     const local = isLocalUrlProvider(provider);
     const apiKey = local ? undefined : keys[provider];
     if (!local && !apiKey) {
-      setMessage("Enter an API key before saving.");
+      notifyError("Enter an API key before saving.");
       return;
     }
     setBusy(`save-${provider}`);
@@ -235,17 +236,18 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           model: models[provider],
         });
         const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
-        setMessage(result.status === "failed"
+        const report = result.status === "failed" ? notifyError : notify;
+        report(result.status === "failed"
           ? `${providerLabel(provider)} saved, but the connection test failed: ${result.details || result.message}${preview}`
           : `${providerLabel(provider)} saved and connection verified (${result.latencyMs} ms)${preview}`);
       } catch (error) {
         const detail = error instanceof Error ? error.message : "connection test failed.";
-        setMessage(`${providerLabel(provider)} saved, but the connection test failed: ${detail}`);
+        notifyError(`${providerLabel(provider)} saved, but the connection test failed: ${detail}`);
       } finally {
         await load();
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save provider.");
+      notifyError(error instanceof Error ? error.message : "Could not save provider.");
     } finally {
       setBusy(null);
     }
@@ -254,16 +256,16 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const saveModel = async (provider: ProviderName) => {
     const model = (models[provider] ?? "").trim();
     if (!model) {
-      setMessage("Choose or enter a model before saving.");
+      notifyError("Choose or enter a model before saving.");
       return;
     }
     setBusy(`model-${provider}`);
     try {
       await api.saveProviderModel(provider, model, availableModels[provider] ?? []);
-      setMessage(`${providerLabel(provider)} model saved.`);
+      notify(`${providerLabel(provider)} model saved.`);
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save model.");
+      notifyError(error instanceof Error ? error.message : "Could not save model.");
     } finally {
       setBusy(null);
     }
@@ -275,11 +277,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     setBusy(`model-${provider}`);
     try {
       await api.saveProviderModel(provider, model.trim(), availableModels[provider] ?? []);
-      setMessage(`${providerLabel(provider)} model changed to ${model.trim()}.`);
+      notify(`${providerLabel(provider)} model changed to ${model.trim()}.`);
       const value = await api.providers();
       setSettings(value);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save model.");
+      notifyError(error instanceof Error ? error.message : "Could not save model.");
     } finally {
       setBusy(null);
     }
@@ -298,10 +300,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       });
       const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
       const details = result.details ? ` — ${result.details}` : "";
-      setMessage(`${providerLabel(provider)}: ${result.message} (${result.latencyMs} ms)${details}${preview}`);
+      const report = result.status === "failed" ? notifyError : notify;
+      report(`${providerLabel(provider)}: ${result.message} (${result.latencyMs} ms)${details}${preview}`);
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Connection test failed.");
+      notifyError(error instanceof Error ? error.message : "Connection test failed.");
     } finally {
       setBusy(null);
     }
@@ -316,9 +319,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.setDefaultProvider(defaultProvider, settings.defaultModel);
       setSettings(value);
-      setMessage("Default LLM updated.");
+      notify("Default LLM updated.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not set default.");
+      notifyError(error instanceof Error ? error.message : "Could not set default.");
     } finally {
       setBusy(null);
     }
@@ -334,9 +337,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.setDefaultProvider(defaultProvider, model);
       setSettings(value);
-      setMessage(`Default LLM changed to ${providerLabel(defaultProvider)} / ${model}.`);
+      notify(`Default LLM changed to ${providerLabel(defaultProvider)} / ${model}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not set default.");
+      notifyError(error instanceof Error ? error.message : "Could not set default.");
     } finally {
       setBusy(null);
     }
@@ -347,16 +350,16 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       ? settings?.taskSettings?.[task]?.model
       : config(provider)?.defaultModel || availableModels[provider]?.[0] || "";
     if (!model) {
-      setMessage(`Choose a model for ${providerLabel(provider)} first.`);
+      notifyError(`Choose a model for ${providerLabel(provider)} first.`);
       return;
     }
     setBusy(`task-${task}`);
     try {
       const value = await api.setTaskProvider(task, provider, model);
       setSettings(value);
-      setMessage(`${TASKS.find((item) => item.id === task)?.label} now uses ${providerLabel(provider)} / ${model}.`);
+      notify(`${TASKS.find((item) => item.id === task)?.label} now uses ${providerLabel(provider)} / ${model}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update task LLM.");
+      notifyError(error instanceof Error ? error.message : "Could not update task LLM.");
     } finally {
       setBusy(null);
     }
@@ -369,9 +372,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.setTaskProvider(task, provider, model);
       setSettings(value);
-      setMessage(`${TASKS.find((item) => item.id === task)?.label} model changed to ${model}.`);
+      notify(`${TASKS.find((item) => item.id === task)?.label} model changed to ${model}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update task model.");
+      notifyError(error instanceof Error ? error.message : "Could not update task model.");
     } finally {
       setBusy(null);
     }
@@ -382,9 +385,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       const value = await api.clearTaskProvider(task);
       setSettings(value);
-      setMessage(`${TASKS.find((item) => item.id === task)?.label} now uses the default LLM.`);
+      notify(`${TASKS.find((item) => item.id === task)?.label} now uses the default LLM.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not reset task LLM.");
+      notifyError(error instanceof Error ? error.message : "Could not reset task LLM.");
     } finally {
       setBusy(null);
     }
@@ -395,11 +398,11 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     try {
       await api.deleteProvider(provider);
       await load();
-      setMessage(isLocalUrlProvider(provider)
+      notify(isLocalUrlProvider(provider)
         ? `${providerLabel(provider)} configuration cleared.`
         : `${providerLabel(provider)} key cleared.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not clear provider.");
+      notifyError(error instanceof Error ? error.message : "Could not clear provider.");
     } finally {
       setBusy(null);
     }
@@ -524,6 +527,6 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       })}
     </section>}
 
-    {message && <p className="status">{message}</p>}
+    <NoticeLine notice={notice} />
   </section>;
 }

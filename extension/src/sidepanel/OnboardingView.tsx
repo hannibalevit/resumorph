@@ -3,6 +3,7 @@ import { api, type ProviderName, type ProviderSettings } from "../shared/apiClie
 import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
 import { DEFAULT_API_BASE_URL, getApiBaseUrl, normalizeApiBaseUrl, saveApiBaseUrl, saveOnboardingComplete } from "../shared/storage";
 import { parseResumeFile } from "../shared/resumeParser";
+import { NoticeLine, useNotice } from "./notice";
 
 type OnboardingStep = "backend" | "llm" | "resume";
 
@@ -31,7 +32,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const [availableModels, setAvailableModels] = useState<Record<string, string[]>>({});
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
   const [resumeText, setResumeText] = useState("");
-  const [message, setMessage] = useState("Checking the local backend...");
+  const { notice, notify, notifyError } = useNotice("Checking the local backend...");
   const [busy, setBusy] = useState<string | null>("initial");
 
   const enabledProviders = useMemo(() => settings?.providers.filter((item) => item.isEnabled) ?? [], [settings]);
@@ -114,7 +115,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     const value = await loadProviderSettings();
     if (!value.providers.some((item) => item.isEnabled)) {
       setStep("llm");
-      setMessage("Add and verify at least one LLM provider.");
+      notify("Add and verify at least one LLM provider.");
       return;
     }
 
@@ -124,7 +125,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       await finish();
     } catch {
       setStep("resume");
-      setMessage("Add a base resume so ResuMorph can create tailored versions.");
+      notify("Add a base resume so ResuMorph can create tailored versions.");
     }
   };
 
@@ -135,11 +136,11 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       setBusy("backend");
       try {
         await api.health();
-        setMessage("Backend connected.");
+        notify("Backend connected.");
         await advanceAfterBackend();
       } catch {
         setStep("backend");
-        setMessage("Backend is not responding. Start the server or enter another connection address.");
+        notifyError("Backend is not responding. Start the server or enter another connection address.");
       } finally {
         setBusy(null);
       }
@@ -148,7 +149,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
   const testBackend = async () => {
     setBusy("backend");
-    setMessage("Checking backend...");
+    notify("Checking backend...");
     try {
       const normalized = normalizeApiBaseUrl(apiBaseUrl);
       const parsed = new URL(normalized);
@@ -158,11 +159,11 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       const savedUrl = await saveApiBaseUrl(normalized);
       setApiBaseUrl(savedUrl);
       await api.health();
-      setMessage("Backend connected.");
+      notify("Backend connected.");
       await advanceAfterBackend();
     } catch (error) {
       setStep("backend");
-      setMessage(error instanceof Error ? error.message : "Could not connect to the backend.");
+      notifyError(error instanceof Error ? error.message : "Could not connect to the backend.");
     } finally {
       setBusy(null);
     }
@@ -172,7 +173,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const checkLocalModels = async (provider: ProviderName) => {
     const baseUrl = (baseUrls[provider] ?? "").trim();
     setBusy(`provider-${provider}`);
-    setMessage(`Checking ${providerLabel(provider)} host...`);
+    notify(`Checking ${providerLabel(provider)} host...`);
     try {
       const result = await api.providerModels(provider, {
         baseUrl: baseUrl || undefined,
@@ -181,14 +182,14 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       setAvailableModels((current) => ({ ...current, [provider]: result.models }));
       setModels((current) => ({ ...current, [provider]: "" }));
       if (!result.models.length) {
-        setMessage("Ollama is reachable, but no models are pulled. Run `ollama pull <model>` and try again.");
+        notifyError("Ollama is reachable, but no models are pulled. Run `ollama pull <model>` and try again.");
         return;
       }
-      setMessage(`${result.models.length} model(s) found. Choose one, then verify and save.`);
+      notify(`${result.models.length} model(s) found. Choose one, then verify and save.`);
     } catch (error) {
       setAvailableModels((current) => ({ ...current, [provider]: [] }));
       setModels((current) => ({ ...current, [provider]: "" }));
-      setMessage(
+      notifyError(
         error instanceof Error
           ? `Could not reach Ollama at the configured host: ${error.message}`
           : "Could not reach the Ollama host. Check the URL and that Ollama is running.",
@@ -204,19 +205,25 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     const apiKey = (keys[provider] ?? "").trim();
     const baseUrl = (baseUrls[provider] ?? "").trim();
     if (!local && !apiKey) {
-      setMessage(`Enter a ${providerLabel(provider)} key.`);
+      notifyError(`Enter a ${providerLabel(provider)} key.`);
       return;
     }
 
     setBusy(`provider-${provider}`);
-    setMessage(`Checking ${providerLabel(provider)}...`);
+    notify(`Checking ${providerLabel(provider)}...`);
     try {
       if (local) {
         const modelList = availableModels[provider] ?? [];
         const model = (models[provider] ?? "").trim();
         if (!model || !modelList.includes(model)) {
-          setMessage("Choose a pulled model before saving.");
+          notifyError("Choose a pulled model before saving.");
           return;
+        }
+        // Verify before persisting, matching the cloud branch below: nothing becomes
+        // the default LLM until it has answered a real request.
+        const test = await api.testProvider(provider, { baseUrl: baseUrl || undefined, model });
+        if (test.status !== "success") {
+          throw new Error(test.details || test.message || "Ollama connection failed.");
         }
         await api.saveProvider(provider, {
           baseUrl,
@@ -225,23 +232,8 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
           testAfterSave: false,
         });
         await api.setDefaultProvider(provider, model);
-        let preview = "";
-        try {
-          const result = await api.testProvider(provider, {
-            baseUrl: baseUrl || undefined,
-            model,
-          });
-          if (result.rawTextPreview) preview = ` — ${result.rawTextPreview}`;
-          if (result.details) preview += ` — ${result.details}`;
-          setMessage(
-            result.status === "failed"
-              ? `${providerLabel(provider)} saved with ${model}, but the connection test failed: ${result.details || result.message}${preview}`
-              : `${providerLabel(provider)} connected with ${model} (${result.latencyMs} ms)${preview}`,
-          );
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : "connection test failed.";
-          setMessage(`${providerLabel(provider)} saved with ${model}, but the connection test failed: ${detail}`);
-        }
+        const preview = test.rawTextPreview ? ` — ${test.rawTextPreview}` : "";
+        notify(`${providerLabel(provider)} connected with ${model} (${test.latencyMs} ms)${preview}`);
         await loadProviderSettings();
         // Keep the checked model list in the card after reload (loadProviderSettings clears it).
         setAvailableModels((current) => ({ ...current, [provider]: modelList }));
@@ -278,10 +270,10 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       setKeys((current) => ({ ...current, [provider]: "" }));
       const preview = test.rawTextPreview ? ` — ${test.rawTextPreview}` : "";
       const details = test.details ? ` — ${test.details}` : "";
-      setMessage(`${providerLabel(provider)} connected (${test.latencyMs} ms)${details}${preview}`);
+      notify(`${providerLabel(provider)} connected (${test.latencyMs} ms)${details}${preview}`);
       await loadProviderSettings();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : `Could not verify ${providerLabel(provider)}.`);
+      notifyError(error instanceof Error ? error.message : `Could not verify ${providerLabel(provider)}.`);
     } finally {
       setBusy(null);
     }
@@ -289,7 +281,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
   const continueToResume = async () => {
     if (!enabledProviders.length) {
-      setMessage("Connect at least one LLM provider.");
+      notifyError("Connect at least one LLM provider.");
       return;
     }
 
@@ -299,7 +291,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       await finish();
     } catch {
       setStep("resume");
-      setMessage("Add a base resume.");
+      notify("Add a base resume.");
     } finally {
       setBusy(null);
     }
@@ -310,14 +302,14 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     if (!file) return;
 
     setBusy("resume");
-    setMessage(`Reading ${file.name}...`);
+    notify(`Reading ${file.name}...`);
     try {
       const text = await parseResumeFile(file);
       await api.saveResume(text);
       setResumeText(text);
-      setMessage("Base resume saved.");
+      notify("Base resume saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save the resume.");
+      notifyError(error instanceof Error ? error.message : "Could not save the resume.");
     } finally {
       setBusy(null);
       event.target.value = "";
@@ -326,7 +318,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
   const completeResumeStep = async () => {
     if (!resumeText.trim()) {
-      setMessage("Add a base resume first.");
+      notifyError("Add a base resume first.");
       return;
     }
     await finish();
@@ -426,7 +418,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
         </div>
       </section>}
 
-      <p className="status" role="status">{message}</p>
+      <NoticeLine notice={notice} />
     </section>
   </main>;
 }
