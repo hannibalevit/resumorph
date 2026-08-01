@@ -31,7 +31,7 @@ body = """
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | striptags | trim }}
-    {% for commit in commits %}
+    {% for commit in commits | unique(attribute="message") %}
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
             {{ commit.message | upper_first }} \
             ([`{{ commit.id | truncate(length=7, end="") }}`](<REPO>/commit/{{ commit.id }}))
@@ -48,11 +48,27 @@ postprocessors = [
 conventional_commits = true
 filter_unconventional = true
 require_conventional = false
-split_commits = false
+split_commits = true
 protect_breaking_commits = true
 filter_commits = true
 tag_pattern = "v[0-9]*"
 sort_commits = "oldest"
+# PRs are squash-merged, so only the PR title would otherwise reach main and
+# every other commit in the branch would vanish from the changelog (and from
+# the version bump - a `feat` under a `fix:` title used to yield a patch bump).
+# GitHub's squash body carries each branch commit as a "* <message>" bullet
+# (repo setting: squash_merge_commit_message = COMMIT_MESSAGES), so:
+#   1. strip the bullet marker, or `^feat`-style commit_parsers won't match;
+#   2. strip the trailing "(#N)" GitHub appends to the squash subject, so that
+#      subject and its duplicate bullet become identical and the template's
+#      `unique(attribute="message")` collapses them into one entry.
+# Preprocessors run before split_commits (git-cliff >= 2.2.0), which is what
+# makes step 1 work. Non-conventional lines (e.g. a pasted PR checklist) are
+# dropped by filter_unconventional/filter_commits above.
+commit_preprocessors = [
+    { pattern = '(?m)^\s*\*\s+', replace = "" },
+    { pattern = '(?m)\s*\(#[0-9]+\)\s*$', replace = "" },
+]
 commit_parsers = [
     { message = "^\\w+(\\(.*\\))?!:", group = "Breaking Changes" },
     { footer = "^BREAKING CHANGE", group = "Breaking Changes" },
