@@ -153,8 +153,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       const typed = (baseUrls[id] ?? "").trim();
       const saved = (savedBaseUrlsRef.current[id] ?? "").trim();
       if (typed === saved) return false;
-      // Blank means "use env/default" — still worth refreshing the pulled list.
-      if (!typed) return true;
+      // Cleared field sends no baseUrl, so the backend would still use saved
+      // config.base_url — skip the probe rather than previewing the old host.
+      if (!typed) return false;
       return isAbsoluteHttpUrl(typed);
     });
     if (!pending.length) return;
@@ -224,18 +225,25 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
         // Test via the client below so we can surface rawTextPreview (e.g. model not pulled).
         testAfterSave: false,
       });
+      // Clear only after save succeeded — a later test failure must not look like a failed save.
       if (!local) setKeys((value) => ({ ...value, [provider]: "" }));
-      const result = await api.testProvider(provider, {
-        // Key was just saved; omit so the backend uses the persisted key.
-        apiKey: undefined,
-        baseUrl: local ? typedBaseUrl(provider) : undefined,
-        model: models[provider],
-      });
-      const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
-      setMessage(result.status === "failed"
-        ? `${providerLabel(provider)} saved, but the connection test failed: ${result.details || result.message}${preview}`
-        : `${providerLabel(provider)} saved and connection verified (${result.latencyMs} ms)${preview}`);
-      await load();
+      try {
+        const result = await api.testProvider(provider, {
+          // Key was just saved; omit so the backend uses the persisted key.
+          apiKey: undefined,
+          baseUrl: local ? typedBaseUrl(provider) : undefined,
+          model: models[provider],
+        });
+        const preview = result.rawTextPreview ? ` — ${result.rawTextPreview}` : "";
+        setMessage(result.status === "failed"
+          ? `${providerLabel(provider)} saved, but the connection test failed: ${result.details || result.message}${preview}`
+          : `${providerLabel(provider)} saved and connection verified (${result.latencyMs} ms)${preview}`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "connection test failed.";
+        setMessage(`${providerLabel(provider)} saved, but the connection test failed: ${detail}`);
+      } finally {
+        await load();
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save provider.");
     } finally {

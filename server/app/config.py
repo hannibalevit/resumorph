@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     default_claude_model: str = Field(
         default="claude-haiku-4-5-20251001", alias="DEFAULT_CLAUDE_MODEL"
     )
-    default_ollama_model: str = Field(default="llama3.2", alias="DEFAULT_OLLAMA_MODEL")
+    default_ollama_model: str = Field(default="qwen2.5:7b", alias="DEFAULT_OLLAMA_MODEL")
     ollama_base_url: str = Field(default=DEFAULT_OLLAMA_BASE_URL, alias="OLLAMA_BASE_URL")
     # Generation (CPU + cold model load) can take minutes; keep this long.
     ollama_timeout_seconds: float = Field(default=300.0, alias="OLLAMA_TIMEOUT_SECONDS")

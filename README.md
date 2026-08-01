@@ -119,7 +119,7 @@ Google Chrome (or another Chromium-based browser).
    | **OpenAI** | `gpt-5.4-mini` |
    | **Anthropic Claude** | `claude-sonnet-5` |
    | **Google Gemini** | `gemini-3.6-flash` |
-   | **Ollama (local)** | whatever you have pulled (e.g. `llama3.2`) — no API key; enter an optional base URL in Settings (blank keeps the backend env/default). The UI shows `effectiveBaseUrl` for where requests will go |
+   | **Ollama (local)** | `qwen2.5:7b` (recommended — best speed/quality balance for resume text; `ollama pull qwen2.5:7b`) — no API key; enter an optional base URL in Settings (blank keeps the backend env/default). The UI shows `effectiveBaseUrl` for where requests will go |
 
    → **Test connection** → **Set as Default**. Cloud provider keys are Fernet-encrypted
    before they're stored; only a masked preview is ever sent back to the extension.

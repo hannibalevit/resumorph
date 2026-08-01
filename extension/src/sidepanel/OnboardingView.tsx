@@ -45,8 +45,21 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
   const loadProviderSettings = async (): Promise<ProviderSettings> => {
     const value = await api.providers();
     setSettings(value);
-    setModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.defaultModel ?? ""])));
-    setAvailableModels(Object.fromEntries(value.providers.map((item) => [item.provider, item.availableModels])));
+    setModels(Object.fromEntries(value.providers.map((item) => {
+      // Never pre-select a backend default for Ollama (e.g. qwen2.5:7b) unless it is in the pulled list.
+      if (isLocalUrlProvider(item.provider)) {
+        const list = item.availableModels ?? [];
+        const current = item.defaultModel ?? "";
+        return [item.provider, list.includes(current) ? current : ""];
+      }
+      return [item.provider, item.defaultModel ?? ""];
+    })));
+    setAvailableModels(Object.fromEntries(value.providers.map((item) => {
+      // Ollama onboarding drives the list from an explicit host check, not cached settings.
+      if (isLocalUrlProvider(item.provider)) return [item.provider, []];
+      return [item.provider, item.availableModels];
+    })));
+    // Saved baseUrl only; leave blank by default so env/default stays out of the DB.
     setBaseUrls(Object.fromEntries(value.providers.map((item) => [item.provider, item.baseUrl ?? ""])));
     return value;
   };
@@ -66,7 +79,7 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       });
       setAvailableModels((current) => ({ ...current, [provider]: result.models }));
     } catch {
-      // Key/URL may still be incomplete or invalid; "Verify and save" surfaces the real error.
+      // Key may still be incomplete or invalid; "Verify and save" surfaces the real error.
     } finally {
       setLoadingModels((current) => ({ ...current, [provider]: false }));
     }
@@ -81,21 +94,6 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     return () => window.clearTimeout(timer);
   }, [keys]);
 
-  useEffect(() => {
-    const pending = PROVIDERS.filter(({ id, kind }) => {
-      if (kind !== "localUrl") return false;
-      const typed = (baseUrls[id] ?? "").trim();
-      const saved = (settings?.providers.find((item) => item.provider === id)?.baseUrl ?? "").trim();
-      return typed !== saved;
-    });
-    if (!pending.length) return;
-    const timer = window.setTimeout(() => {
-      // refresh=true so the backend probes the typed URL instead of returning the cached list.
-      pending.forEach(({ id }) => void loadModels(id, undefined, (baseUrls[id] ?? "").trim(), true));
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [baseUrls, settings]);
-
   const updateKey = (provider: ProviderName, apiKey: string) => {
     setKeys((current) => ({ ...current, [provider]: apiKey }));
     setAvailableModels((current) => {
@@ -107,11 +105,9 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
 
   const updateBaseUrl = (provider: ProviderName, baseUrl: string) => {
     setBaseUrls((current) => ({ ...current, [provider]: baseUrl }));
-    setAvailableModels((current) => {
-      const next = { ...current };
-      delete next[provider];
-      return next;
-    });
+    // Changing the host resets the two-step Ollama flow back to "Check available models".
+    setAvailableModels((current) => ({ ...current, [provider]: [] }));
+    setModels((current) => ({ ...current, [provider]: "" }));
   };
 
   const advanceAfterBackend = async () => {
@@ -172,6 +168,37 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     }
   };
 
+  /** Step 1 for Ollama: probe host + pulled list only. Does not save. */
+  const checkLocalModels = async (provider: ProviderName) => {
+    const baseUrl = (baseUrls[provider] ?? "").trim();
+    setBusy(`provider-${provider}`);
+    setMessage(`Checking ${providerLabel(provider)} host...`);
+    try {
+      const result = await api.providerModels(provider, {
+        baseUrl: baseUrl || undefined,
+        refresh: true,
+      });
+      setAvailableModels((current) => ({ ...current, [provider]: result.models }));
+      setModels((current) => ({ ...current, [provider]: "" }));
+      if (!result.models.length) {
+        setMessage("Ollama is reachable, but no models are pulled. Run `ollama pull <model>` and try again.");
+        return;
+      }
+      setMessage(`${result.models.length} model(s) found. Choose one, then verify and save.`);
+    } catch (error) {
+      setAvailableModels((current) => ({ ...current, [provider]: [] }));
+      setModels((current) => ({ ...current, [provider]: "" }));
+      setMessage(
+        error instanceof Error
+          ? `Could not reach Ollama at the configured host: ${error.message}`
+          : "Could not reach the Ollama host. Check the URL and that Ollama is running.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Step 2 for Ollama / single step for cloud: persist provider + set default. */
   const saveAndTestProvider = async (provider: ProviderName) => {
     const local = isLocalUrlProvider(provider);
     const apiKey = (keys[provider] ?? "").trim();
@@ -184,9 +211,46 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
     setBusy(`provider-${provider}`);
     setMessage(`Checking ${providerLabel(provider)}...`);
     try {
+      if (local) {
+        const modelList = availableModels[provider] ?? [];
+        const model = (models[provider] ?? "").trim();
+        if (!model || !modelList.includes(model)) {
+          setMessage("Choose a pulled model before saving.");
+          return;
+        }
+        await api.saveProvider(provider, {
+          baseUrl,
+          defaultModel: model,
+          availableModels: modelList,
+          testAfterSave: false,
+        });
+        await api.setDefaultProvider(provider, model);
+        let preview = "";
+        try {
+          const result = await api.testProvider(provider, {
+            baseUrl: baseUrl || undefined,
+            model,
+          });
+          if (result.rawTextPreview) preview = ` — ${result.rawTextPreview}`;
+          if (result.details) preview += ` — ${result.details}`;
+          setMessage(
+            result.status === "failed"
+              ? `${providerLabel(provider)} saved with ${model}, but the connection test failed: ${result.details || result.message}${preview}`
+              : `${providerLabel(provider)} connected with ${model} (${result.latencyMs} ms)${preview}`,
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "connection test failed.";
+          setMessage(`${providerLabel(provider)} saved with ${model}, but the connection test failed: ${detail}`);
+        }
+        await loadProviderSettings();
+        // Keep the checked model list in the card after reload (loadProviderSettings clears it).
+        setAvailableModels((current) => ({ ...current, [provider]: modelList }));
+        setModels((current) => ({ ...current, [provider]: model }));
+        return;
+      }
+
       const test = await api.testProvider(provider, {
-        apiKey: local ? undefined : apiKey,
-        baseUrl: local ? baseUrl || undefined : undefined,
+        apiKey,
         model: models[provider],
       });
       if (test.status !== "success") {
@@ -196,25 +260,25 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
       let modelList = availableModels[provider] ?? [];
       try {
         modelList = (await api.providerModels(provider, {
-          apiKey: local ? undefined : apiKey,
-          baseUrl: local ? baseUrl || undefined : undefined,
+          apiKey,
           refresh: true,
         })).models;
       } catch {
         modelList = test.model ? [test.model] : modelList;
       }
 
-      const model = test.model || models[provider] || modelList[0] || "";
+      const model = models[provider] || test.model || modelList[0] || "";
       await api.saveProvider(provider, {
-        apiKey: local ? undefined : apiKey,
-        baseUrl: local ? baseUrl : undefined,
+        apiKey,
         defaultModel: model,
         availableModels: modelList,
         testAfterSave: true,
       });
       await api.setDefaultProvider(provider, model);
-      if (!local) setKeys((current) => ({ ...current, [provider]: "" }));
-      setMessage(`${providerLabel(provider)} connected.`);
+      setKeys((current) => ({ ...current, [provider]: "" }));
+      const preview = test.rawTextPreview ? ` — ${test.rawTextPreview}` : "";
+      const details = test.details ? ` — ${test.details}` : "";
+      setMessage(`${providerLabel(provider)} connected (${test.latencyMs} ms)${details}${preview}`);
       await loadProviderSettings();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `Could not verify ${providerLabel(provider)}.`);
@@ -321,16 +385,27 @@ export function OnboardingView({ onComplete }: OnboardingViewProps) {
                 aria-label={`${provider.label} base URL`}
               />
               {config?.effectiveBaseUrl && <small className="muted">Requests go to {config.effectiveBaseUrl}</small>}
-              <p className="muted">Local model quality is usually lower than cloud providers, especially on smaller models. Leave blank to use the backend default.</p>
+              <p className="muted">Local model quality is usually lower than cloud providers, especially on smaller models. Leave the URL blank to use the backend env default. The first generation can take a few minutes while the model loads.</p>
             </> : <>
               <small>{config?.isEnabled ? config.keyMask : "No key saved"}</small>
               <input type="password" value={keys[provider.id] ?? ""} placeholder={provider.placeholder} onChange={(event) => updateKey(provider.id, event.target.value)} disabled={busy !== null} />
             </>}
-            {loadingModels[provider.id] ? <p className="muted">Loading available models...</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null}>
+            {local ? (
+              availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null}>
+                <option value="">Choose a pulled model</option>
+                {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}
+              </select> : <p className="muted">Check available models to list what Ollama has pulled.</p>
+            ) : loadingModels[provider.id] ? <p className="muted">Loading available models...</p> : availableModels[provider.id]?.length ? <select value={models[provider.id] ?? ""} onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null}>
               <option value="">Choose model (default)</option>
               {availableModels[provider.id].map((model) => <option key={model} value={model}>{model}</option>)}
             </select> : <input value={models[provider.id] ?? ""} placeholder="Model, optional" onChange={(event) => setModels((current) => ({ ...current, [provider.id]: event.target.value }))} disabled={busy !== null} />}
-            <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Checking..." : "Verify and save"}</button>
+            {local ? (
+              availableModels[provider.id]?.length
+                ? <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null || !(models[provider.id] ?? "").trim()}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Saving..." : "Verify and save"}</button>
+                : <button className="secondary" onClick={() => void checkLocalModels(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Checking..." : "Check available models"}</button>
+            ) : (
+              <button className="secondary" onClick={() => void saveAndTestProvider(provider.id)} disabled={busy !== null}>{busy === `provider-${provider.id}` && <ButtonSpinner />}{busy === `provider-${provider.id}` ? "Checking..." : "Verify and save"}</button>
+            )}
           </section>;
         })}
         <div className="onboarding-actions">
