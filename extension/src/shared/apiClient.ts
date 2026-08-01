@@ -38,10 +38,40 @@ export const api = {
   generateResume: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST" }),
   generateCoverLetter: (id: string) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST" }),
   providers: () => request<ProviderSettings>("/api/settings/llm-providers"),
-  saveProvider: (provider: ProviderName, apiKey: string, defaultModel: string, availableModels: string[], testAfterSave = false) => request<ProviderConfig>(`/api/settings/llm-providers/${provider}`, { method: "POST", body: JSON.stringify({ apiKey, defaultModel, availableModels, testAfterSave }) }),
-  saveProviderModel: (provider: ProviderName, defaultModel: string, availableModels: string[]) => request<ProviderConfig>(`/api/settings/llm-providers/${provider}/default-model`, { method: "POST", body: JSON.stringify({ defaultModel, availableModels }) }),
-  testProvider: (provider: ProviderName, apiKey?: string, model?: string) => request<ProviderTest>(`/api/settings/llm-providers/${provider}/test`, { method: "POST", body: JSON.stringify({ apiKey: apiKey || undefined, model: model || undefined }) }),
-  providerModels: (provider: ProviderName, apiKey?: string, refresh = false) => request<{ provider: ProviderName; models: string[] }>(`/api/settings/llm-providers/${provider}/models`, { method: "POST", body: JSON.stringify({ apiKey: apiKey || undefined, refresh }) }),
+  saveProvider: (provider: ProviderName, input: SaveProviderInput) =>
+    request<ProviderConfig>(`/api/settings/llm-providers/${provider}`, {
+      method: "POST",
+      body: JSON.stringify({
+        apiKey: input.apiKey || undefined,
+        baseUrl: input.baseUrl,
+        defaultModel: input.defaultModel ?? "",
+        availableModels: input.availableModels ?? [],
+        testAfterSave: input.testAfterSave ?? false,
+      }),
+    }),
+  saveProviderModel: (provider: ProviderName, defaultModel: string, availableModels: string[]) =>
+    request<ProviderConfig>(`/api/settings/llm-providers/${provider}/default-model`, {
+      method: "POST",
+      body: JSON.stringify({ defaultModel, availableModels }),
+    }),
+  testProvider: (provider: ProviderName, input: TestProviderInput = {}) =>
+    request<ProviderTest>(`/api/settings/llm-providers/${provider}/test`, {
+      method: "POST",
+      body: JSON.stringify({
+        apiKey: input.apiKey || undefined,
+        baseUrl: input.baseUrl,
+        model: input.model || undefined,
+      }),
+    }),
+  providerModels: (provider: ProviderName, input: ProviderModelsInput = {}) =>
+    request<{ provider: ProviderName; models: string[] }>(`/api/settings/llm-providers/${provider}/models`, {
+      method: "POST",
+      body: JSON.stringify({
+        apiKey: input.apiKey || undefined,
+        baseUrl: input.baseUrl,
+        refresh: input.refresh ?? false,
+      }),
+    }),
   deleteProvider: (provider: ProviderName) => request<void>(`/api/settings/llm-providers/${provider}`, { method: "DELETE" }),
   setDefaultProvider: (provider: ProviderName, model: string) => request<ProviderSettings>("/api/settings/default-llm", { method: "POST", body: JSON.stringify({ provider, model }) }),
   setTaskProvider: (task: LlmTaskName, provider: ProviderName, model: string) => request<ProviderSettings>("/api/settings/task-llm", { method: "POST", body: JSON.stringify({ task, provider, model }) }),
@@ -53,9 +83,32 @@ export const api = {
 };
 
 export type GeneratedFile = { artifactId: string; fileName: string; mimeType: string; base64: string; notes: { keywordsUsed: string[]; missingRequirements: string[]; warnings: string[] } };
-export type ProviderName = "openai" | "gemini" | "claude";
+export type ProviderName = "openai" | "gemini" | "claude" | "ollama";
 export type LlmTaskName = "scan" | "resume" | "field_answer";
-export type ProviderConfig = { provider: ProviderName; isEnabled: boolean; keyMask?: string; defaultModel?: string; availableModels: string[]; modelsUpdatedAt?: string; lastTestStatus: string; lastTestError?: string; lastTestedAt?: string };
+/** baseUrl = saved value only (nullable). effectiveBaseUrl = resolved for display. */
+export type ProviderConfig = {
+  provider: ProviderName;
+  isEnabled: boolean;
+  keyMask?: string;
+  baseUrl?: string | null;
+  effectiveBaseUrl?: string | null;
+  defaultModel?: string;
+  availableModels: string[];
+  modelsUpdatedAt?: string;
+  lastTestStatus: string;
+  lastTestError?: string;
+  lastTestedAt?: string;
+};
+export type SaveProviderInput = {
+  apiKey?: string;
+  /** Omit to leave saved URL unchanged; "" clears saved URL so env/default apply. */
+  baseUrl?: string | null;
+  defaultModel?: string;
+  availableModels?: string[];
+  testAfterSave?: boolean;
+};
+export type TestProviderInput = { apiKey?: string; baseUrl?: string | null; model?: string };
+export type ProviderModelsInput = { apiKey?: string; baseUrl?: string | null; refresh?: boolean };
 export type TaskLlmSetting = { task: LlmTaskName; provider: ProviderName; model: string; isCustom: boolean };
 export type ProviderSettings = { providers: ProviderConfig[]; defaultProvider?: ProviderName; defaultModel?: string; taskSettings: Record<LlmTaskName, TaskLlmSetting> };
 export type ProviderTest = { provider: ProviderName; model: string; status: "success" | "failed"; latencyMs: number; message: string; rawTextPreview?: string; errorCode?: string; details?: string };

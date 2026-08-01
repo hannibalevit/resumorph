@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 
 def test_default_model_for_ollama() -> None:
-    assert default_model_for("ollama")
+    assert default_model_for("ollama") == "qwen2.5:7b"
 
 
 def test_resolve_llm_ollama_returns_base_url(db_session: Session) -> None:

@@ -17,6 +17,10 @@ Edit `.env` and set `MASTER_ENCRYPTION_KEY` to a Fernet key (`python -c "from cr
 For **Ollama**, set `OLLAMA_BASE_URL` (default `http://localhost:11434`) and optionally
 `OLLAMA_TIMEOUT_SECONDS` (generation, default 300), `OLLAMA_CONNECT_TIMEOUT_SECONDS`
 (list/test only, default 10 — so a unreachable host fails fast), and `OLLAMA_NUM_CTX`.
+**`DEFAULT_OLLAMA_MODEL` is `qwen2.5:7b`** — the recommended local model for
+resume/cover-letter text (speed/quality balance); pull it with
+`ollama pull qwen2.5:7b` before first use. Smaller chat models such as `llama3.2`
+are a poor fit for these tasks.
 **`OLLAMA_NUM_CTX` defaults to `32768`** — resume/cover-letter prompts are large, and if
 the window is too small Ollama truncates **silently** (mid-JSON parse failures, or dropped
 prompt prefix with no error). Do not treat a lower value as a safe “tested default.” Under
