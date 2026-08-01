@@ -10,6 +10,8 @@ const GENERATE_LABEL = "Generate answer with ResuMorph";
 const CANCEL_LABEL = "Cancel generating answer";
 const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
 const INVALIDATED_CONTEXT = /extension context invalidated|context invalidated/i;
+// Chrome killed the service worker mid-request, so the reply never came back.
+const PORT_CLOSED = /message port closed|message channel closed/i;
 // A cancel clicked before the request reaches the service worker (waking it can
 // take a moment) has nothing to abort there, so it is also recorded here.
 const cancelledRequests = new Set<string>();
@@ -28,6 +30,10 @@ async function generateFieldAnswer(jobSessionId: string, field: DetectedFormFiel
 
 function isInvalidatedContextError(error: unknown): boolean {
   return error instanceof Error && INVALIDATED_CONTEXT.test(error.message);
+}
+
+function isWorkerSuspendedError(error: unknown): boolean {
+  return error instanceof Error && PORT_CLOSED.test(error.message);
 }
 
 function removeAllInlineButtons(): void {
@@ -127,6 +133,8 @@ async function ask(field: DetectedFormField, button: HTMLButtonElement): Promise
     if (isInvalidatedContextError(error)) {
       removeAllInlineButtons();
       alert("ResuMorph was reloaded. Refresh this browser tab, then try generating the answer again.");
+    } else if (isWorkerSuspendedError(error)) {
+      alert("The browser stopped ResuMorph before the answer arrived — the model took too long. Try again, or pick a faster model in ResuMorph settings.");
     } else {
       alert(error instanceof Error ? error.message : "Could not generate an answer.");
     }

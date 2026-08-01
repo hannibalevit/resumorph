@@ -1,6 +1,7 @@
 import { BACKEND_CONNECTED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, getApiBaseUrl, isExtensionEnabled } from "../shared/storage";
 import { isBlockedUrl } from "../shared/blockedSites";
-import { GENERATION_TIMEOUT_MS, isRequestCancelled, PROBE_TIMEOUT_MS, withAbort } from "../shared/requestTimeout";
+import { isRequestCancelled, PROBE_TIMEOUT_MS, withAbort } from "../shared/requestTimeout";
+import { MAX_ACTIVITY_MS, withKeepAlive } from "./keepAlive";
 
 const HEALTH_CHECK_ALARM = "healthCheck";
 // Content scripts can't easily import the API client, so field answers are proxied
@@ -145,7 +146,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (isBlockedUrl(sender.tab?.url)) throw new Error("This site isn't related to job search, so ResuMorph is disabled here.");
         if (!await isExtensionEnabled()) throw new Error("ResuMorph is disabled.");
         const apiBaseUrl = await getApiBaseUrl();
-        const payload = await withAbort(GENERATION_TIMEOUT_MS, controller.signal, async (signal) => {
+        // Unlike the sidepanel, this runs in a service worker: the heartbeat
+        // holds it past the 30s idle timeout, and the timeout stays under
+        // Chrome's unresettable 5-minute activity cap so a slow model produces
+        // our own error instead of the worker being killed mid-request.
+        const payload = await withKeepAlive(() => withAbort(MAX_ACTIVITY_MS, controller.signal, async (signal) => {
           const response = await fetch(`${apiBaseUrl}/api/job-sessions/${message.jobSessionId}/generate-field-answer`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -155,7 +160,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const body = await response.json().catch(() => ({})) as { answer?: string; warnings?: string[]; error?: { message?: string } };
           if (!response.ok) throw new Error(body.error?.message ?? `Backend returned ${response.status}`);
           return body;
-        });
+        }));
         sendResponse({ answer: payload.answer ?? "", warnings: payload.warnings ?? [] });
       } catch (error) {
         // A cancel is the user's own doing — the in-page button must not alert on it.
