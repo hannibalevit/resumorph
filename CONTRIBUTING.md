@@ -255,8 +255,22 @@ e.g. `feat!:`). This is enforced by CI
 [amannn/action-semantic-pull-request](https://github.com/amannn/action-semantic-pull-request))
 on every PR title, running alongside `server-ci.yml` / `extension-ci.yml`,
 not in place of them. PRs are squash-merged, so the PR title becomes the
-commit message on `main` — this isn't just a style rule, that commit message
-is what directly drives both the changelog and the version bump on release.
+subject of the commit on `main` — this isn't just a style rule, that subject
+is what drives the version bump and the headline changelog entry on release.
+
+**The commits inside your branch matter too.** GitHub prefills the squash
+commit's body with every commit from the branch, and `cliff.toml` sets
+`split_commits = true`, so each conventional commit you wrote becomes its own
+`CHANGELOG.md` entry — and counts toward the version bump, which means a
+`feat:` commit under a `fix:` PR title still cuts a minor release. So:
+
+- **Write branch commits as Conventional Commits too**, not just the PR
+  title. Non-conventional lines are dropped, so `wip` and `fix review
+  comments` won't show up — but anything conventional will, verbatim, in a
+  public changelog. Reword or squash noisy commits before asking for a merge.
+- **Maintainers: leave the prefilled squash body alone when merging.**
+  Replacing it with the PR description discards the commit list, and the
+  release quietly falls back to a single entry derived from the title.
 
 Important: **every push to `main` is automatically released**
 (`.github/workflows/auto-release.yml` + `cliff.toml`, via
