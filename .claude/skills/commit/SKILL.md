@@ -8,10 +8,19 @@ description: Use when the user asks to commit changes (e.g. "commit this", "make
 Write commit messages in this repo as Conventional Commits — not as a style
 preference, but because `.github/workflows/pr-title-lint.yml` enforces this
 format on PR titles, and PRs are squash-merged, so the PR title becomes the
-commit message `git-cliff` reads on release (see `cliff.toml`) to generate
-`CHANGELOG.md` and pick the version bump. Keeping every commit in this format
-also avoids the "single-commit PR" trap, where GitHub defaults the squash
-commit message to that one commit's message instead of the PR title.
+subject `git-cliff` reads on release (see `cliff.toml`) to generate
+`CHANGELOG.md` and pick the version bump.
+
+This applies to *every* commit, not just the one that ends up as the PR
+title. `cliff.toml` sets `split_commits = true`, and GitHub prefills the
+squash commit's body with the branch's commit messages, so each conventional
+commit here lands in `CHANGELOG.md` on its own and counts toward the version
+bump. Two things follow: a throwaway subject like `wip` is silently dropped
+(it isn't conventional), while a real one is published verbatim — and a
+`feat:` commit under a `fix:` PR title correctly cuts a minor release rather
+than a patch. It also avoids the "single-commit PR" trap, where GitHub
+defaults the squash commit message to that one commit's message instead of
+the PR title.
 
 ## Steps
 
@@ -68,6 +77,7 @@ commit message to that one commit's message instead of the PR title.
 - Never amend, force-push, or skip hooks (`--no-verify` etc.) unless the user
   explicitly asks — this skill only changes *what the message says*, not the
   general git safety rules already in force for this session.
-- This only governs the commit message itself. If the change is going into a
-  PR, the **PR title** is what actually matters for the changelog/version bump
-  after squash-merge — keep it in the same format.
+- This governs the commit message, but the **PR title** still carries the most
+  weight after squash-merge: it becomes the commit subject on `main` and the
+  headline changelog entry. Keep it in the same format, and don't rely on a
+  good branch commit to rescue a vague title.
