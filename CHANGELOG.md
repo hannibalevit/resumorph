@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-01
+
+### Bug Fixes
+
+- *(extension)* Keep the service worker alive during field-answer generation ([`5b2e5e0`](https://github.com/hannibalevit/resumorph/commit/5b2e5e0fe58fbb4c737c1e5c8747d9c63467ec11))
+
+- *(server)* Fail the Ollama connection test when no usable model is pulled ([`60addf9`](https://github.com/hannibalevit/resumorph/commit/60addf9ecba36083912d328c5fa57fa2a369738a))
+
+- *(sidepanel)* Surface setup failures as errors and verify Ollama before saving ([`9746c25`](https://github.com/hannibalevit/resumorph/commit/9746c25663f8c0f1f9f5aab78344b330ac5f13a1))
+
+
+### Documentation
+
+- *(extension)* Keep the service worker alive during field-answer generation ([`5b2e5e0`](https://github.com/hannibalevit/resumorph/commit/5b2e5e0fe58fbb4c737c1e5c8747d9c63467ec11))
+
+
+### Features
+
+- *(extension)* Add request timeouts and cancel for backend calls ([`5e4b6fe`](https://github.com/hannibalevit/resumorph/commit/5e4b6fe2c333ce6d8f16592fb7436a30248c2947))
+
 ## [1.3.0] - 2026-08-01
 
 ### Bug Fixes
