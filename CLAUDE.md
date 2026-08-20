@@ -45,6 +45,10 @@ Or from repo root: `make build-extension`. Load `extension/dist` as an unpacked 
 
 `npm test` runs Vitest (`extension/tests/`, jsdom env) — there is no separate lint script, but `npm run build` runs `tsc --noEmit` (strict mode, `noUnusedLocals`/`noUnusedParameters` on) before bundling, so type errors and unused symbols fail the build too. CI (`.github/workflows/extension-ci.yml`) runs `npm test` then `npm run build` on every PR and every push to `main` (no path filter — see the server-ci note above for why, and for why the `pull_request` trigger has to stay).
 
+## Code navigation
+
+If a `.codegraph/` directory exists at the repo root (created by running `codegraph init` — holds `codegraph.db` plus daemon files, already excluded from git via `.codegraph/.gitignore`), this repo is indexed by CodeGraph. When that directory is present and the CodeGraph MCP server (or the `codegraph` CLI) is available, prefer it over grep/find/reading files for locating or understanding code: the MCP tool `codegraph_explore` (or `codegraph explore "<question or symbol names>"` from the shell) answers most "where is X" / "how does X work" questions in a single call, returning verbatim source plus call paths between symbols — including dynamic-dispatch hops (callbacks, event listeners, JSX children) that grep can't follow. If `.codegraph/` is absent, skip CodeGraph entirely — indexing is an opt-in per-machine step, not a project requirement, and there's nothing to query.
+
 ## Architecture
 
 ### Backend (`server/app/`)

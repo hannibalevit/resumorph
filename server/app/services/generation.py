@@ -7,7 +7,9 @@ the LLM by patching those two names on this module.
 """
 
 from datetime import datetime
+from typing import Any
 
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,7 @@ from app.job_service import (
     extract_context_fallback,
     local_field_answer,
 )
+from app.llm.base import LlmProvider
 from app.llm.factory import get_llm_provider
 from app.models import GeneratedArtifactModel, JobSessionModel, UserProfileModel
 from app.openai_client import ResumeGenerationError
@@ -64,6 +67,38 @@ def _latest_resume_text(db: Session, session_id: str, fallback: str) -> str:
     return fallback
 
 
+async def _generate_structured[T: BaseModel](
+    provider: LlmProvider,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict[str, Any],
+    max_tokens: int,
+    model_cls: type[T],
+) -> T:
+    """Call ``generate_json`` and validate the result against ``model_cls``, retrying
+    once with a stricter instruction if the LLM's JSON doesn't match the requested
+    shape - e.g. a reasoning model emitting a bare array (which parse_json_response
+    wraps as ``{"items": [...]}``) instead of the requested object - rather than
+    failing the whole generation on the first malformed response."""
+    try:
+        raw = await provider.generate_json(
+            api_key, model, system_prompt, user_prompt, schema, max_tokens
+        )
+        return model_cls.model_validate(raw)
+    except (ValidationError, ValueError):
+        retry_prompt = (
+            f"{user_prompt}\n\nYour previous response did not match the required JSON "
+            "object shape. Return exactly one JSON object with every required field "
+            "populated - not a list, and not a partial object."
+        )
+        raw = await provider.generate_json(
+            api_key, model, system_prompt, retry_prompt, schema, max_tokens
+        )
+        return model_cls.model_validate(raw)
+
+
 async def run_job_scan(db: Session, snapshot: PageSnapshot) -> tuple[JobContext, str, str]:
     """Extract a ``JobContext`` from a page snapshot, falling back to a heuristic
     extractor if the LLM call fails. Returns the context plus provider/model used."""
@@ -107,16 +142,18 @@ async def build_resume(
         base_resume=profile.base_resume_text,
     )
     try:
-        raw = await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
-            resolved.api_key,
-            resolved.model,
-            prompt.system,
-            prompt.user,
-            TailoredResume.model_json_schema(),
-            4800,
-        )
         resume = preserve_resume_identity(
-            TailoredResume.model_validate(raw), profile.base_resume_text
+            await _generate_structured(
+                get_llm_provider(resolved.provider, base_url=resolved.base_url),
+                resolved.api_key,
+                resolved.model,
+                prompt.system,
+                prompt.user,
+                TailoredResume.model_json_schema(),
+                4800,
+                TailoredResume,
+            ),
+            profile.base_resume_text,
         )
     except Exception as exc:
         raise ResumeGenerationError(
@@ -149,15 +186,16 @@ async def build_cover_letter(
         resume=resume_text,
     )
     try:
-        raw = await get_llm_provider(resolved.provider, base_url=resolved.base_url).generate_json(
+        letter = await _generate_structured(
+            get_llm_provider(resolved.provider, base_url=resolved.base_url),
             resolved.api_key,
             resolved.model,
             prompt.system,
             prompt.user,
             CoverLetter.model_json_schema(),
             2400,
+            CoverLetter,
         )
-        letter = CoverLetter.model_validate(raw)
     except Exception as exc:
         raise ResumeGenerationError(
             f"{resolved.provider} could not generate a valid structured cover letter "

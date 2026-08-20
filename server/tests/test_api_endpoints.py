@@ -249,6 +249,86 @@ def test_generate_cover_letter_falls_back_to_base_resume(
     assert "Senior Python engineer with backend experience" in captured_prompts[-1]
 
 
+class FlakyProvider(StubProvider):
+    """Returns a malformed payload (a bare JSON array, as parse_json_response wraps
+    it into {"items": []}) on the first call, then a valid payload on the second -
+    simulates a reasoning model that misses the requested object shape once."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate_json(self, *args: object, **kwargs: object) -> dict[str, object]:
+        self.calls += 1
+        if self.calls == 1:
+            return {"items": []}
+        return dict(STUB_GENERATION)
+
+
+class AlwaysMalformedProvider(StubProvider):
+    async def generate_json(self, *args: object, **kwargs: object) -> dict[str, object]:
+        return {"items": []}
+
+
+def test_generate_cover_letter_retries_on_malformed_json(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed first response (e.g. gpt-5.6-terra returning a bare [] instead of
+    the CoverLetter object) should be retried once instead of failing outright."""
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+    provider = FlakyProvider()
+    monkeypatch.setattr(
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
+    )
+    monkeypatch.setattr(generation, "get_llm_provider", lambda name, base_url=None: provider)
+
+    response = client.post(f"/api/job-sessions/{session.id}/generate-cover-letter")
+
+    assert response.status_code == 200
+    assert provider.calls == 2
+
+
+def test_generate_cover_letter_fails_when_retry_also_malformed(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+    monkeypatch.setattr(
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
+    )
+    monkeypatch.setattr(
+        generation, "get_llm_provider", lambda name, base_url=None: AlwaysMalformedProvider()
+    )
+
+    response = client.post(f"/api/job-sessions/{session.id}/generate-cover-letter")
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "LLM_GENERATION_FAILED"
+
+
+def test_generate_resume_retries_on_malformed_json(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+    provider = FlakyProvider()
+    monkeypatch.setattr(
+        generation,
+        "resolve_task_llm",
+        lambda db, task: ResolvedLlm("openai", "gpt-test", "sk-test", None),
+    )
+    monkeypatch.setattr(generation, "get_llm_provider", lambda name, base_url=None: provider)
+
+    response = client.post(f"/api/job-sessions/{session.id}/generate-resume")
+
+    assert response.status_code == 200
+    assert provider.calls == 2
+
+
 def test_generate_field_answer_via_session(
     client: TestClient, db_session: Session, stub_llm: None
 ) -> None:
