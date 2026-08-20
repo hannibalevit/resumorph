@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-20
+
+### Bug Fixes
+
+- Structured output retry on malformed json ([`dd79446`](https://github.com/hannibalevit/resumorph/commit/dd79446253527903cb073d4df5cedd5c96f7fc15))
+
+- *(server)* Retry structured LLM output once on malformed JSON ([`dd79446`](https://github.com/hannibalevit/resumorph/commit/dd79446253527903cb073d4df5cedd5c96f7fc15))
+
+
+### Documentation
+
+- Point Claude at CodeGraph for code navigation when indexed ([`dd79446`](https://github.com/hannibalevit/resumorph/commit/dd79446253527903cb073d4df5cedd5c96f7fc15))
+
 ## [1.4.0] - 2026-08-01
 
 ### Bug Fixes
