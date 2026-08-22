@@ -180,6 +180,23 @@ def test_generate_session_resume(client: TestClient, db_session: Session, stub_l
     assert body["base64"]
 
 
+def test_generate_session_resume_as_pdf(
+    client: TestClient, db_session: Session, stub_llm: None
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-resume", json={"targetFormat": "pdf"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "Ada_Lovelace_Acme_Resume.pdf"
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
+
+
 def test_generate_session_resume_requires_base_resume(
     client: TestClient, db_session: Session, stub_llm: None
 ) -> None:
@@ -202,6 +219,24 @@ def test_generate_cover_letter(client: TestClient, db_session: Session, stub_llm
 
     assert response.status_code == 200
     assert response.json()["fileName"].endswith(".docx")
+
+
+def test_generate_cover_letter_as_pdf(
+    client: TestClient, db_session: Session, stub_llm: None
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-cover-letter",
+        json={"targetFormat": "pdf"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"].endswith(".pdf")
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
 
 
 def test_generate_cover_letter_uses_latest_tailored_resume(

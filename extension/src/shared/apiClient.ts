@@ -46,8 +46,8 @@ export const api = {
   saveResume: (text: string) => request<{ text: string }>("/api/profile/base-resume", { method: "POST", body: JSON.stringify({ text }) }),
   deleteSession: (id: string) => request<void>(`/api/job-sessions/${id}`, { method: "DELETE" }),
   clearSessions: () => request<void>("/api/job-sessions", { method: "DELETE" }),
-  generateResume: (id: string, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST", timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
-  generateCoverLetter: (id: string, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST", timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
+  generateResume: (id: string, targetFormat: DocumentFormat, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST", body: JSON.stringify({ targetFormat }), timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
+  generateCoverLetter: (id: string, targetFormat: DocumentFormat, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST", body: JSON.stringify({ targetFormat }), timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
   providers: () => request<ProviderSettings>("/api/settings/llm-providers"),
   saveProvider: (provider: ProviderName, input: SaveProviderInput) =>
     request<ProviderConfig>(`/api/settings/llm-providers/${provider}`, {
@@ -96,6 +96,7 @@ export const api = {
 };
 
 export type GeneratedFile = { artifactId: string; fileName: string; mimeType: string; base64: string; notes: { keywordsUsed: string[]; missingRequirements: string[]; warnings: string[] } };
+export type DocumentFormat = "docx" | "pdf";
 export type ProviderName = "openai" | "gemini" | "claude" | "ollama";
 export type LlmTaskName = "scan" | "resume" | "field_answer";
 /** baseUrl = saved value only (nullable). effectiveBaseUrl = resolved for display. */

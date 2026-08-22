@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
+import { api, type ArtifactDetail, type DocumentFormat, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
 import { isRequestCancelled } from "../shared/requestTimeout";
 import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type ThemePreference } from "../shared/storage";
@@ -106,6 +106,7 @@ export function App() {
   const [extensionActive, setExtensionActive] = useState(true);
   const [status, setStatus] = useState("Ready to scan this page.");
   const [busy, setBusy] = useState<BusyState>(null);
+  const [documentFormat, setDocumentFormat] = useState<DocumentFormat>("docx");
   const [showDebug, setShowDebug] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
@@ -344,7 +345,7 @@ export function App() {
     const controller = startCancellable();
     setBusy("resume"); setStatus("Generating resume…");
     try {
-      const file = await api.generateResume(sessionId, { signal: controller.signal });
+      const file = await api.generateResume(sessionId, documentFormat, { signal: controller.signal });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);
@@ -360,7 +361,7 @@ export function App() {
     const controller = startCancellable();
     setBusy("coverLetter"); setStatus("Generating cover letter...");
     try {
-      const file = await api.generateCoverLetter(sessionId, { signal: controller.signal });
+      const file = await api.generateCoverLetter(sessionId, documentFormat, { signal: controller.signal });
       const [updated, detail] = await Promise.all([api.session(sessionId), api.artifact(file.artifactId)]);
       setActiveSession(updated);
       setCoverLetter(detail);
@@ -435,6 +436,7 @@ export function App() {
     <div className="view-heading"><h2>Jobs</h2></div>
     <section className="actions page-actions">
       <button className="primary" onClick={() => void scan()} disabled={actionsDisabled}>{busy === "scan" && <ButtonSpinner />}{busy === "scan" ? "Scanning..." : activeSession ? "Rescan this page" : "Scan this page"}</button>
+      <label className="document-format" htmlFor="document-format">Format<select id="document-format" value={documentFormat} onChange={(event) => setDocumentFormat(event.target.value as DocumentFormat)} disabled={generationDisabled}><option value="docx">DOCX</option><option value="pdf">PDF</option></select></label>
       <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>
       <button className="primary" disabled={generationDisabled} onClick={() => void generateCoverLetter()}>{busy === "coverLetter" && <ButtonSpinner />}{busy === "coverLetter" ? "Generating..." : hasCoverLetterArtifact ? "Update cover letter" : "Generate cover letter"}</button>
     </section>

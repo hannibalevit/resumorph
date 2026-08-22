@@ -15,6 +15,7 @@ dependencies = [
     "python-docx==1.1.2",
     "python-multipart==0.0.20",
     "pypdf==5.6.0",
+    "fpdf2>=2.8.7",
     "SQLAlchemy==2.0.41",
     "cryptography==45.0.5",
     "google-genai==1.26.0",
@@ -30,7 +31,6 @@ dev = [
     "mypy>=2.1.0",
     "deptry>=0.25.1",
     "pytest-cov>=7.1.0",
-    "fpdf2>=2.8.7",
 ]
 
 [tool.uv]

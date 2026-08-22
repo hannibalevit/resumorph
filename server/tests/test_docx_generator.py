@@ -7,6 +7,7 @@ from app.docx_generator import (
     render_resume_docx,
     validate_docx_template,
 )
+from app.pdf_generator import PDF_MIME_TYPE, render_cover_letter_pdf, render_resume_pdf
 from app.schemas import (
     CoverLetter,
     CoverLetterAchievement,
@@ -19,6 +20,7 @@ from app.schemas import (
 )
 from docx import Document
 from pydantic import ValidationError
+from pypdf import PdfReader
 
 
 def _resume(**overrides) -> TailoredResume:
@@ -69,6 +71,25 @@ async def test_render_resume_docx_produces_valid_docx() -> None:
     assert data[:2] == b"PK"
     assert isinstance(replacements, dict)
     assert validate_docx_template(data) == []
+
+
+async def test_render_resume_pdf_produces_readable_pdf() -> None:
+    data, replacements = await render_resume_pdf(_resume())
+
+    assert data.startswith(b"%PDF-")
+    assert isinstance(replacements, dict)
+    text = "".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+    assert "Ada Lovelace" in text
+    assert "Work Experience" in text
+
+
+async def test_render_cover_letter_pdf_produces_readable_pdf() -> None:
+    data, _ = await render_cover_letter_pdf(_cover_letter())
+
+    assert data.startswith(b"%PDF-")
+    text = "".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+    assert "Dear Hiring Manager" in text
+    assert "Scaled APIs to 1M users" in text
 
 
 async def test_render_resume_docx_section_order_and_styles() -> None:
@@ -229,3 +250,7 @@ def test_cover_letter_rejects_empty_greeting() -> None:
 
 def test_docx_mime_type() -> None:
     assert DOCX_MIME_TYPE.endswith("wordprocessingml.document")
+
+
+def test_pdf_mime_type() -> None:
+    assert PDF_MIME_TYPE == "application/pdf"
