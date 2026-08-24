@@ -59,10 +59,12 @@ third-party service that isn't the LLM provider you already chose to trust.
 - **Scan a job posting** — click "Scan this page" on a job listing (LinkedIn, Greenhouse,
   Lever, Ashby, Indeed, SmartRecruiters, Workable, or most other job pages) to extract
   its requirements and keywords.
-- **Generate a tailored resume** — produces a `.docx` resume rewritten against that
-  specific posting.
+- **Generate a tailored resume** — produces a `.docx` or `.pdf` resume rewritten
+  against that specific posting, with separate download actions for each format.
 - **Generate a cover letter** — built from the same scanned posting and your latest
-  tailored resume.
+  tailored resume, available as either `.docx` or `.pdf`.
+- **Choose default output formats** — set the default resume and cover-letter format
+  independently in **Settings → General**.
 - **Fill application forms faster** — an inline **AI** button on non-sensitive text
   fields drafts an answer you can preview, then insert, copy, or cancel.
 - **History** — past scanned vacancies and every generated artifact (resumes, cover
