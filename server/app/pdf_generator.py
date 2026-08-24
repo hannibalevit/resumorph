@@ -1,11 +1,15 @@
 """Programmatic PDF rendering for tailored resumes and cover letters."""
 
+from pathlib import Path
+
 from fpdf import FPDF, XPos, YPos
 
-from app.docx_generator import _clean, _headings_for, _split_contact_lines
 from app.schemas import CoverLetter, TailoredResume
+from app.text_utils import clean_text, headings_for, split_contact_lines
 
 PDF_MIME_TYPE = "application/pdf"
+PDF_FONT_FAMILY = "DejaVu"
+_FONT_DIRECTORY = Path(__file__).with_name("assets") / "fonts"
 
 
 class PdfGenerationError(Exception):
@@ -20,6 +24,8 @@ class _DocumentPdf(FPDF):
 
 def _new_pdf(page_format: str) -> _DocumentPdf:
     pdf = _DocumentPdf(format="letter" if page_format == "letter" else "A4", unit="mm")
+    pdf.add_font(PDF_FONT_FAMILY, fname=_FONT_DIRECTORY / "DejaVuSans.ttf")
+    pdf.add_font(PDF_FONT_FAMILY, style="B", fname=_FONT_DIRECTORY / "DejaVuSans-Bold.ttf")
     pdf.set_margins(18, 18, 18)
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
@@ -27,9 +33,7 @@ def _new_pdf(page_format: str) -> _DocumentPdf:
 
 
 def _text(value: str | None, counts: dict[str, int]) -> str:
-    # Built-in PDF fonts are limited to Latin-1. Keep the same ATS hygiene as
-    # DOCX output and replace only characters the renderer cannot represent.
-    return _clean(value, counts).encode("latin-1", "replace").decode("latin-1")
+    return clean_text(value, counts)
 
 
 def _multi_cell(pdf: _DocumentPdf, height: float, text: str) -> None:
@@ -37,14 +41,14 @@ def _multi_cell(pdf: _DocumentPdf, height: float, text: str) -> None:
 
 
 def _paragraph(pdf: _DocumentPdf, text: str, counts: dict[str, int], *, size: float = 10.5) -> None:
-    pdf.set_font("Helvetica", size=size)
+    pdf.set_font(PDF_FONT_FAMILY, size=size)
     _multi_cell(pdf, 5.2, _text(text, counts))
     pdf.ln(1.2)
 
 
 def _heading(pdf: _DocumentPdf, text: str, counts: dict[str, int]) -> None:
     pdf.ln(2)
-    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.set_font(PDF_FONT_FAMILY, style="B", size=12)
     _multi_cell(pdf, 6, _text(text, counts))
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(2)
@@ -53,11 +57,11 @@ def _heading(pdf: _DocumentPdf, text: str, counts: dict[str, int]) -> None:
 def _resume_pdf(resume: TailoredResume) -> tuple[bytes, dict[str, int]]:
     counts: dict[str, int] = {}
     pdf = _new_pdf(resume.page_format)
-    headings = _headings_for(resume.language)
+    headings = headings_for(resume.language)
 
-    pdf.set_font("Helvetica", style="B", size=18)
+    pdf.set_font(PDF_FONT_FAMILY, style="B", size=18)
     _multi_cell(pdf, 8, _text(resume.candidate_name, counts))
-    primary, urls = _split_contact_lines(resume.contact_info or "")
+    primary, urls = split_contact_lines(resume.contact_info or "")
     if primary:
         _paragraph(pdf, primary, counts, size=10)
     if urls:
@@ -73,7 +77,7 @@ def _resume_pdf(resume: TailoredResume) -> tuple[bytes, dict[str, int]]:
     if resume.experience:
         _heading(pdf, headings["experience"], counts)
         for job in resume.experience:
-            pdf.set_font("Helvetica", style="B", size=11)
+            pdf.set_font(PDF_FONT_FAMILY, style="B", size=11)
             _multi_cell(pdf, 5.5, _text(job.title, counts))
             company = job.company if not job.dates else f"{job.company} | {job.dates}"
             _paragraph(pdf, company, counts, size=10)
@@ -86,7 +90,7 @@ def _resume_pdf(resume: TailoredResume) -> tuple[bytes, dict[str, int]]:
         _heading(pdf, headings["projects"], counts)
         for project in resume.projects:
             title = f"{project.title} ({project.badge})" if project.badge else project.title
-            pdf.set_font("Helvetica", style="B", size=11)
+            pdf.set_font(PDF_FONT_FAMILY, style="B", size=11)
             _multi_cell(pdf, 5.5, _text(title, counts))
             if project.description:
                 _paragraph(pdf, project.description, counts)
@@ -98,7 +102,7 @@ def _resume_pdf(resume: TailoredResume) -> tuple[bytes, dict[str, int]]:
             heading = (
                 education.degree if not education.year else f"{education.degree} | {education.year}"
             )
-            pdf.set_font("Helvetica", style="B", size=11)
+            pdf.set_font(PDF_FONT_FAMILY, style="B", size=11)
             _multi_cell(pdf, 5.5, _text(heading, counts))
             _paragraph(pdf, education.institution, counts, size=10)
             if education.description:
@@ -137,9 +141,9 @@ def _resume_pdf(resume: TailoredResume) -> tuple[bytes, dict[str, int]]:
 def _cover_letter_pdf(letter: CoverLetter) -> tuple[bytes, dict[str, int]]:
     counts: dict[str, int] = {}
     pdf = _new_pdf(letter.page_format)
-    pdf.set_font("Helvetica", style="B", size=18)
+    pdf.set_font(PDF_FONT_FAMILY, style="B", size=18)
     _multi_cell(pdf, 8, _text(letter.candidate_name, counts))
-    primary, urls = _split_contact_lines(letter.contact_info or "")
+    primary, urls = split_contact_lines(letter.contact_info or "")
     if primary:
         _paragraph(pdf, primary, counts, size=10)
     if urls:

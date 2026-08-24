@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type ArtifactDetail, type DocumentFormat, type GeneratedFile } from "../shared/apiClient";
+import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
 import { isRequestCancelled } from "../shared/requestTimeout";
-import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type ThemePreference } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY, DEFAULT_RESUME_FORMAT_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getDefaultCoverLetterFormat, getDefaultResumeFormat, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type DocumentFormat, type ThemePreference } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
 import { OnboardingView } from "./OnboardingView";
@@ -106,7 +106,9 @@ export function App() {
   const [extensionActive, setExtensionActive] = useState(true);
   const [status, setStatus] = useState("Ready to scan this page.");
   const [busy, setBusy] = useState<BusyState>(null);
-  const [documentFormat, setDocumentFormat] = useState<DocumentFormat>("docx");
+  const [generationFormat, setGenerationFormat] = useState<DocumentFormat | null>(null);
+  const [defaultResumeFormat, setDefaultResumeFormat] = useState<DocumentFormat>("docx");
+  const [defaultCoverLetterFormat, setDefaultCoverLetterFormat] = useState<DocumentFormat>("docx");
   const [showDebug, setShowDebug] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
@@ -138,6 +140,8 @@ export function App() {
   useEffect(() => {
     void getThemePreference().then(setTheme).catch(() => undefined);
     void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
+    void getDefaultResumeFormat().then(setDefaultResumeFormat).catch(() => undefined);
+    void getDefaultCoverLetterFormat().then(setDefaultCoverLetterFormat).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -221,6 +225,10 @@ export function App() {
       if (themeChange) setTheme(themeChange.newValue === "dark" ? "dark" : "light");
       const debugInfoChange = changes[DEBUG_INFO_ENABLED_STORAGE_KEY];
       if (debugInfoChange) setDebugInfoEnabled(debugInfoChange.newValue === true);
+      const resumeFormatChange = changes[DEFAULT_RESUME_FORMAT_STORAGE_KEY];
+      if (resumeFormatChange) setDefaultResumeFormat(resumeFormatChange.newValue === "pdf" ? "pdf" : "docx");
+      const coverLetterFormatChange = changes[DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY];
+      if (coverLetterFormatChange) setDefaultCoverLetterFormat(coverLetterFormatChange.newValue === "pdf" ? "pdf" : "docx");
     };
     chrome.runtime.onMessage.addListener(listener);
     chrome.storage.onChanged.addListener(storageListener);
@@ -339,36 +347,37 @@ export function App() {
     }
   };
 
-  const generateResume = async () => {
+  const generateResume = async (format: DocumentFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
-    setBusy("resume"); setStatus("Generating resume…");
+    setBusy("resume"); setGenerationFormat(format); setStatus("Generating resume…");
     try {
-      const file = await api.generateResume(sessionId, documentFormat, { signal: controller.signal });
+      const file = await api.generateResume(sessionId, format, { signal: controller.signal });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);
       await refreshSessions();
       setStatus("Generated file is ready for download.");
     } catch (error) { reportFailure(error, "Generation failed."); }
-    finally { inFlightRef.current = null; setBusy(null); }
+    finally { inFlightRef.current = null; setBusy(null); setGenerationFormat(null); }
   };
 
-  const generateCoverLetter = async () => {
+  const generateCoverLetter = async (format: DocumentFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
-    setBusy("coverLetter"); setStatus("Generating cover letter...");
+    setBusy("coverLetter"); setGenerationFormat(format); setStatus("Generating cover letter...");
     try {
-      const file = await api.generateCoverLetter(sessionId, documentFormat, { signal: controller.signal });
+      const file = await api.generateCoverLetter(sessionId, format, { signal: controller.signal });
+      download(file);
       const [updated, detail] = await Promise.all([api.session(sessionId), api.artifact(file.artifactId)]);
       setActiveSession(updated);
       setCoverLetter(detail);
       await refreshSessions();
       setStatus("Cover letter generated.");
     } catch (error) { reportFailure(error, "Cover letter generation failed."); }
-    finally { inFlightRef.current = null; setBusy(null); }
+    finally { inFlightRef.current = null; setBusy(null); setGenerationFormat(null); }
   };
 
   const copyCoverLetter = async () => {
@@ -436,9 +445,18 @@ export function App() {
     <div className="view-heading"><h2>Jobs</h2></div>
     <section className="actions page-actions">
       <button className="primary" onClick={() => void scan()} disabled={actionsDisabled}>{busy === "scan" && <ButtonSpinner />}{busy === "scan" ? "Scanning..." : activeSession ? "Rescan this page" : "Scan this page"}</button>
-      <label className="document-format" htmlFor="document-format">Format<select id="document-format" value={documentFormat} onChange={(event) => setDocumentFormat(event.target.value as DocumentFormat)} disabled={generationDisabled}><option value="docx">DOCX</option><option value="pdf">PDF</option></select></label>
-      <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>
-      <button className="primary" disabled={generationDisabled} onClick={() => void generateCoverLetter()}>{busy === "coverLetter" && <ButtonSpinner />}{busy === "coverLetter" ? "Generating..." : hasCoverLetterArtifact ? "Update cover letter" : "Generate cover letter"}</button>
+      <div className="document-actions">
+        <div className="document-action-group" data-default-format={defaultResumeFormat} role="group" aria-label="Resume downloads">
+          <strong>Resume</strong>
+          <button className="primary" title={hasResumeArtifact ? "Update resume as DOCX" : "Generate resume as DOCX"} aria-label={hasResumeArtifact ? "Update resume as DOCX" : "Generate resume as DOCX"} disabled={generationDisabled} onClick={() => void generateResume("docx")}>{busy === "resume" && generationFormat === "docx" && <ButtonSpinner />}DOCX</button>
+          <button className="primary" title={hasResumeArtifact ? "Update resume as PDF" : "Generate resume as PDF"} aria-label={hasResumeArtifact ? "Update resume as PDF" : "Generate resume as PDF"} disabled={generationDisabled} onClick={() => void generateResume("pdf")}>{busy === "resume" && generationFormat === "pdf" && <ButtonSpinner />}PDF</button>
+        </div>
+        <div className="document-action-group" data-default-format={defaultCoverLetterFormat} role="group" aria-label="Cover letter downloads">
+          <strong>Cover letter</strong>
+          <button className="primary" title={hasCoverLetterArtifact ? "Update cover letter as DOCX" : "Generate cover letter as DOCX"} aria-label={hasCoverLetterArtifact ? "Update cover letter as DOCX" : "Generate cover letter as DOCX"} disabled={generationDisabled} onClick={() => void generateCoverLetter("docx")}>{busy === "coverLetter" && generationFormat === "docx" && <ButtonSpinner />}DOCX</button>
+          <button className="primary" title={hasCoverLetterArtifact ? "Update cover letter as PDF" : "Generate cover letter as PDF"} aria-label={hasCoverLetterArtifact ? "Update cover letter as PDF" : "Generate cover letter as PDF"} disabled={generationDisabled} onClick={() => void generateCoverLetter("pdf")}>{busy === "coverLetter" && generationFormat === "pdf" && <ButtonSpinner />}PDF</button>
+        </div>
+      </div>
     </section>
     <details className="manual-scan" aria-label="Manual vacancy scan" open={manualTextOpen} onToggle={(event) => setManualTextOpen((event.target as HTMLDetailsElement).open)}>
       <summary>Manual vacancy text</summary>

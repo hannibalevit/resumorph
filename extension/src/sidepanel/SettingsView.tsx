@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
-import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
+import { getDefaultCoverLetterFormat, getDefaultResumeFormat, getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveDefaultCoverLetterFormat, saveDefaultResumeFormat, saveThemePreference, type DocumentFormat, type ThemePreference } from "../shared/storage";
 import { NoticeLine, useNotice } from "./notice";
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
@@ -39,6 +39,8 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<"resume" | "llm" | "tasks" | "general">("general");
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
+  const [defaultResumeFormat, setDefaultResumeFormat] = useState<DocumentFormat>("docx");
+  const [defaultCoverLetterFormat, setDefaultCoverLetterFormat] = useState<DocumentFormat>("docx");
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>({});
@@ -87,6 +89,8 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     void loadResumeState();
     void getThemePreference().then(setTheme).catch(() => undefined);
     void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
+    void getDefaultResumeFormat().then(setDefaultResumeFormat).catch(() => undefined);
+    void getDefaultCoverLetterFormat().then(setDefaultCoverLetterFormat).catch(() => undefined);
   }, []);
 
   const changeTheme = async (next: ThemePreference) => {
@@ -97,6 +101,16 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const changeDebugInfoEnabled = async (enabled: boolean) => {
     setDebugInfoEnabled(enabled);
     await saveDebugInfoEnabled(enabled);
+  };
+
+  const changeDefaultResumeFormat = async (format: DocumentFormat) => {
+    setDefaultResumeFormat(format);
+    await saveDefaultResumeFormat(format);
+  };
+
+  const changeDefaultCoverLetterFormat = async (format: DocumentFormat) => {
+    setDefaultCoverLetterFormat(format);
+    await saveDefaultCoverLetterFormat(format);
   };
 
   const config = (provider: ProviderName): ProviderConfig | undefined => settings?.providers.find((item) => item.provider === provider);
@@ -437,6 +451,26 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <input type="checkbox" checked={debugInfoEnabled} onChange={(event) => void changeDebugInfoEnabled(event.target.checked)} aria-label="Toggle debug information" />
           <span className="toggle-slider" aria-hidden="true" />
         </label>
+      </div>
+      <div className="toggle-row format-setting-row">
+        <div>
+          <h3>Default CV format</h3>
+          <p className="muted">Choose which format is highlighted first when generating your resume.</p>
+        </div>
+        <select value={defaultResumeFormat} onChange={(event) => void changeDefaultResumeFormat(event.target.value as DocumentFormat)} aria-label="Default CV format">
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+        </select>
+      </div>
+      <div className="toggle-row format-setting-row">
+        <div>
+          <h3>Default cover letter format</h3>
+          <p className="muted">Choose which format is highlighted first when generating your cover letter.</p>
+        </div>
+        <select value={defaultCoverLetterFormat} onChange={(event) => void changeDefaultCoverLetterFormat(event.target.value as DocumentFormat)} aria-label="Default cover letter format">
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+        </select>
       </div>
     </section> : activeTab === "resume" ? <section className="settings-panel">
       <h3>Base resume</h3>

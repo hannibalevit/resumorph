@@ -83,6 +83,24 @@ async def test_render_resume_pdf_produces_readable_pdf() -> None:
     assert "Work Experience" in text
 
 
+async def test_render_resume_pdf_preserves_unicode_text() -> None:
+    data, _ = await render_resume_pdf(
+        _resume(
+            candidateName="\u015eule \u015eahin \u0416\u0443\u043a\u043e\u0432\u0430",
+            summary=(
+                "T\u00fcrk\u00e7e ve \u0440\u0443\u0441\u0441\u043a\u0438\u0439 metinle "
+                "g\u00fcvenilir servisler geli\u015ftirir."
+            ),
+            language="ru",
+        )
+    )
+
+    text = "".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+    assert "\u015eule \u015eahin \u0416\u0443\u043a\u043e\u0432\u0430" in text
+    assert "T\u00fcrk\u00e7e ve \u0440\u0443\u0441\u0441\u043a\u0438\u0439" in text
+    assert "\u041e\u043f\u044b\u0442 \u0440\u0430\u0431\u043e\u0442\u044b" in text
+
+
 async def test_render_cover_letter_pdf_produces_readable_pdf() -> None:
     data, _ = await render_cover_letter_pdf(_cover_letter())
 
