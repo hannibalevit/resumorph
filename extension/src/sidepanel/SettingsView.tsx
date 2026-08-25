@@ -455,7 +455,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       <div className="toggle-row format-setting-row">
         <div>
           <h3>Default CV format</h3>
-          <p className="muted">Choose which format is highlighted first when generating your resume.</p>
+          <p className="muted">Choose which format the header action uses when generating your resume.</p>
         </div>
         <select value={defaultResumeFormat} onChange={(event) => void changeDefaultResumeFormat(event.target.value as DocumentFormat)} aria-label="Default CV format">
           <option value="docx">DOCX</option>
@@ -465,7 +465,7 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
       <div className="toggle-row format-setting-row">
         <div>
           <h3>Default cover letter format</h3>
-          <p className="muted">Choose which format is highlighted first when generating your cover letter.</p>
+          <p className="muted">Choose which format the header action uses when generating your cover letter.</p>
         </div>
         <select value={defaultCoverLetterFormat} onChange={(event) => void changeDefaultCoverLetterFormat(event.target.value as DocumentFormat)} aria-label="Default cover letter format">
           <option value="docx">DOCX</option>

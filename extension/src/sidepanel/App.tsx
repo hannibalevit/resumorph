@@ -347,7 +347,7 @@ export function App() {
     }
   };
 
-  const generateResume = async (format: DocumentFormat) => {
+  const generateResume = async (format: DocumentFormat = defaultResumeFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
@@ -363,7 +363,7 @@ export function App() {
     finally { inFlightRef.current = null; setBusy(null); setGenerationFormat(null); }
   };
 
-  const generateCoverLetter = async (format: DocumentFormat) => {
+  const generateCoverLetter = async (format: DocumentFormat = defaultCoverLetterFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
@@ -445,18 +445,8 @@ export function App() {
     <div className="view-heading"><h2>Jobs</h2></div>
     <section className="actions page-actions">
       <button className="primary" onClick={() => void scan()} disabled={actionsDisabled}>{busy === "scan" && <ButtonSpinner />}{busy === "scan" ? "Scanning..." : activeSession ? "Rescan this page" : "Scan this page"}</button>
-      <div className="document-actions">
-        <div className="document-action-group" data-default-format={defaultResumeFormat} role="group" aria-label="Resume downloads">
-          <strong>Resume</strong>
-          <button className="primary" title={hasResumeArtifact ? "Update resume as DOCX" : "Generate resume as DOCX"} aria-label={hasResumeArtifact ? "Update resume as DOCX" : "Generate resume as DOCX"} disabled={generationDisabled} onClick={() => void generateResume("docx")}>{busy === "resume" && generationFormat === "docx" && <ButtonSpinner />}DOCX</button>
-          <button className="primary" title={hasResumeArtifact ? "Update resume as PDF" : "Generate resume as PDF"} aria-label={hasResumeArtifact ? "Update resume as PDF" : "Generate resume as PDF"} disabled={generationDisabled} onClick={() => void generateResume("pdf")}>{busy === "resume" && generationFormat === "pdf" && <ButtonSpinner />}PDF</button>
-        </div>
-        <div className="document-action-group" data-default-format={defaultCoverLetterFormat} role="group" aria-label="Cover letter downloads">
-          <strong>Cover letter</strong>
-          <button className="primary" title={hasCoverLetterArtifact ? "Update cover letter as DOCX" : "Generate cover letter as DOCX"} aria-label={hasCoverLetterArtifact ? "Update cover letter as DOCX" : "Generate cover letter as DOCX"} disabled={generationDisabled} onClick={() => void generateCoverLetter("docx")}>{busy === "coverLetter" && generationFormat === "docx" && <ButtonSpinner />}DOCX</button>
-          <button className="primary" title={hasCoverLetterArtifact ? "Update cover letter as PDF" : "Generate cover letter as PDF"} aria-label={hasCoverLetterArtifact ? "Update cover letter as PDF" : "Generate cover letter as PDF"} disabled={generationDisabled} onClick={() => void generateCoverLetter("pdf")}>{busy === "coverLetter" && generationFormat === "pdf" && <ButtonSpinner />}PDF</button>
-        </div>
-      </div>
+      <button className="primary" disabled={generationDisabled} onClick={() => void generateResume()}>{busy === "resume" && <ButtonSpinner />}{busy === "resume" ? "Generating..." : hasResumeArtifact ? "Update resume" : "Generate resume"}</button>
+      <button className="primary" disabled={generationDisabled} onClick={() => void generateCoverLetter()}>{busy === "coverLetter" && <ButtonSpinner />}{busy === "coverLetter" ? "Generating..." : hasCoverLetterArtifact ? "Update cover letter" : "Generate cover letter"}</button>
     </section>
     <details className="manual-scan" aria-label="Manual vacancy scan" open={manualTextOpen} onToggle={(event) => setManualTextOpen((event.target as HTMLDetailsElement).open)}>
       <summary>Manual vacancy text</summary>
@@ -480,7 +470,7 @@ export function App() {
       <section><h3>Responsibilities</h3><ul>{context?.responsibilities.length ? context.responsibilities.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
       <section><h3>Keywords</h3><div className="keywords">{context?.keywords.length ? context.keywords.map((word) => <span key={word}>{word}</span>) : "No keywords detected"}</div></section>
       {coverLetterBody && <section><div className="section-heading"><h3>Cover letter</h3><button className={coverLetterCopied ? "icon compact copy-button copied" : "icon compact copy-button"} type="button" aria-label={coverLetterCopied ? "Cover letter copied" : "Copy cover letter"} title={coverLetterCopied ? "Copied" : "Copy cover letter"} onClick={() => void copyCoverLetter()}>{coverLetterCopied ? "Copied" : "⧉"}</button></div><article className={coverLetterExpanded ? "cover-letter-card expanded" : "cover-letter-card"}><p>{coverLetterBody}</p></article><button className="secondary compact show-more-button" type="button" onClick={() => setCoverLetterExpanded((current) => !current)}>{coverLetterExpanded ? "Show less" : "Show more"}</button></section>}
-      {activeSession.artifacts.length > 0 && <section><h3>Saved files</h3>{activeSession.artifacts.map((artifact) => <article className="artifact" key={artifact.id}><strong>{artifact.title}</strong><small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>{artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>{busy === "download" && <ButtonSpinner />}{busy === "download" ? "Downloading..." : "Download"}</button>}</article>)}</section>}
+      {activeSession.artifacts.length > 0 && <section><h3>Saved files</h3>{activeSession.artifacts.map((artifact) => <article className="artifact" key={artifact.id}><strong>{artifact.title}</strong><small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>{artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>{busy === "download" && <ButtonSpinner />}{busy === "download" ? "Downloading..." : "Download"}</button>}{artifact.artifactType === "resume" && artifact.fileName?.toLowerCase().endsWith(".docx") && <button className="secondary compact" disabled={busy !== null} onClick={() => void generateResume("pdf")}>{busy === "resume" && generationFormat === "pdf" && <ButtonSpinner />}Download PDF</button>}{artifact.artifactType === "resume" && artifact.fileName?.toLowerCase().endsWith(".pdf") && <button className="secondary compact" disabled={busy !== null} onClick={() => void generateResume("docx")}>{busy === "resume" && generationFormat === "docx" && <ButtonSpinner />}Download DOCX</button>}{artifact.artifactType === "cover_letter" && artifact.fileName?.toLowerCase().endsWith(".docx") && <button className="secondary compact" disabled={busy !== null} onClick={() => void generateCoverLetter("pdf")}>{busy === "coverLetter" && generationFormat === "pdf" && <ButtonSpinner />}Download PDF</button>}{artifact.artifactType === "cover_letter" && artifact.fileName?.toLowerCase().endsWith(".pdf") && <button className="secondary compact" disabled={busy !== null} onClick={() => void generateCoverLetter("docx")}>{busy === "coverLetter" && generationFormat === "docx" && <ButtonSpinner />}Download DOCX</button>}</article>)}</section>}
       {!resumePresent && <p className="warning">Upload a base resume before generating tailored materials.</p>}
       {debugInfoEnabled && <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Full visible characters</dt><dd>{snapshot?.visibleText.length ?? 0}</dd><dt>Primary source</dt><dd>{snapshot?.primaryJobSource || "full_visible_text"}</dd><dt>Primary characters</dt><dd>{snapshot?.primaryJobText?.length ?? 0}</dd><dt>Detected form fields</dt><dd>{snapshot?.formFields.length ?? 0}</dd><dt>Extraction warnings</dt><dd>{snapshot?.extractionWarnings?.join("; ") || "None"}</dd><dt>LLM warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>}
     </section>}</>}
