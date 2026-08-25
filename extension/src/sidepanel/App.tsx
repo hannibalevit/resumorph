@@ -429,7 +429,9 @@ export function App() {
   const siteBlocked = isBlockedUrl(activeTab.url);
   const actionsDisabled = busy !== null || backend !== "connected" || !extensionActive || siteBlocked;
   const manualScanDisabled = busy !== null || backend !== "connected" || !extensionActive || !manualJobText.trim();
-  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession || siteBlocked;
+  // A blocked browser tab only prevents scanning that tab. Once a vacancy has
+  // been scanned (including via manual text), generation should remain usable.
+  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession;
   const connectionLabel = !extensionActive ? "disabled" : backend;
 
   if (showOnboarding === null) {
