@@ -515,6 +515,81 @@ def test_artifact_not_found(client: TestClient) -> None:
     assert client.delete("/api/artifacts/missing").status_code == 404
 
 
+def test_convert_saved_resume_artifact_without_llm(client: TestClient, db_session: Session) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="resume",
+        title="Resume — Backend Engineer",
+        file_name="Ada_Lovelace_Acme_Resume.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content_json=STUB_GENERATION,
+        llm_provider="openai",
+        llm_model="gpt-test",
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "Ada_Lovelace_Acme_Resume.pdf"
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
+    assert "without regenerating content" in body["notes"]["warnings"][0]
+    assert db_session.query(GeneratedArtifactModel).count() == 2
+
+
+def test_convert_saved_cover_letter_artifact_to_docx(
+    client: TestClient, db_session: Session
+) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="cover_letter",
+        title="Cover letter — Backend Engineer",
+        file_name="cover-letter-ada-lovelace-acme.pdf",
+        mime_type="application/pdf",
+        content_json=STUB_GENERATION,
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "docx"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "cover-letter-ada-lovelace-acme-backend-engineer.docx"
+    assert body["mimeType"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert body["base64"].startswith("UEsDB")
+
+
+def test_convert_saved_artifact_rejects_same_format(
+    client: TestClient, db_session: Session
+) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="resume",
+        title="Resume",
+        file_name="resume.pdf",
+        content_json=STUB_GENERATION,
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "FORMAT_ALREADY_EXISTS"
+
+
 # ---------------------------------------------------------------------------
 # admin filters
 # ---------------------------------------------------------------------------

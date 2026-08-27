@@ -48,6 +48,7 @@ export const api = {
   clearSessions: () => request<void>("/api/job-sessions", { method: "DELETE" }),
   generateResume: (id: string, targetFormat: DocumentFormat, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-resume`, { method: "POST", body: JSON.stringify({ targetFormat }), timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
   generateCoverLetter: (id: string, targetFormat: DocumentFormat, options: CallOptions = {}) => request<GeneratedFile>(`/api/job-sessions/${id}/generate-cover-letter`, { method: "POST", body: JSON.stringify({ targetFormat }), timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
+  convertArtifact: (id: string, targetFormat: DocumentFormat, options: CallOptions = {}) => request<GeneratedFile>(`/api/artifacts/${id}/convert`, { method: "POST", body: JSON.stringify({ targetFormat }), timeoutMs: GENERATION_TIMEOUT_MS, signal: options.signal }),
   providers: () => request<ProviderSettings>("/api/settings/llm-providers"),
   saveProvider: (provider: ProviderName, input: SaveProviderInput) =>
     request<ProviderConfig>(`/api/settings/llm-providers/${provider}`, {

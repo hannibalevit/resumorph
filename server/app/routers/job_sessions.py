@@ -44,7 +44,7 @@ from app.services.generation import (
     generate_field_answer_content,
     run_job_scan,
 )
-from app.text_utils import classify_related_link, resume_docx_filename, safe_filename
+from app.text_utils import classify_related_link, resume_filename, safe_filename
 
 router = APIRouter()
 
@@ -210,10 +210,7 @@ async def generate_session_resume(
             f"ATS normalization adjusted {total_ats_replacements} "
             "character(s) to plain-ASCII equivalents."
         )
-    file_name = (
-        resume_docx_filename(resume.candidate_name, context.company_name).removesuffix(".docx")
-        + f".{target_format}"
-    )
+    file_name = resume_filename(resume.candidate_name, context.company_name, target_format)
     base64_file = base64.b64encode(document_bytes).decode("ascii")
     artifact = GeneratedArtifactModel(
         job_session_id=session.id,

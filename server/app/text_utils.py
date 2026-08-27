@@ -1,6 +1,7 @@
 """Pure string helpers with no DB or LLM dependencies."""
 
 import re
+from typing import Literal
 
 _COMPANY_JOBS_LINK_PHRASES = (
     "all jobs",
@@ -87,10 +88,12 @@ def safe_filename(*parts: str | None, fallback: str) -> str:
     return (stem or fallback)[:120]
 
 
-def resume_docx_filename(candidate_name: str, company_name: str | None = None) -> str:
-    """<Name>_<Company>_Resume.docx, e.g. "Ada Lovelace", "Acme Corp" ->
-    "Ada_Lovelace_Acme_Corp_Resume.docx". Falls back to "<Name>_Resume.docx" when
-    the company name is missing (a job session's company_name can be null)."""
+def resume_filename(
+    candidate_name: str,
+    company_name: str | None = None,
+    extension: Literal["docx", "pdf"] = "docx",
+) -> str:
+    """Return a stable resume filename for either supported document format."""
 
     def _clean(value: str) -> str:
         cleaned = re.sub(r"[^\w\s-]", "", value, flags=re.UNICODE).strip()
@@ -98,7 +101,13 @@ def resume_docx_filename(candidate_name: str, company_name: str | None = None) -
 
     parts = [part for part in (_clean(candidate_name), _clean(company_name or "")) if part]
     stem = "_".join(parts) or "Resume"
-    return f"{stem}_Resume.docx"
+    return f"{stem}_Resume.{extension}"
+
+
+def resume_docx_filename(candidate_name: str, company_name: str | None = None) -> str:
+    """Backward-compatible DOCX filename helper."""
+
+    return resume_filename(candidate_name, company_name, "docx")
 
 
 # === Section heading translations ============================================

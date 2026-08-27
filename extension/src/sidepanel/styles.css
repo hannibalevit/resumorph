@@ -10,3 +10,4 @@ input,select,textarea{width:100%;padding:var(--space-3);border:1px solid #c8d0dc
 :root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{color-scheme:dark;background:#182230;color:#eef2f7;border-color:#344054}
 :root .format-setting-row select{width:auto;min-width:90px}:root .format-setting-row>div{flex:1}
 .primary{transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease}.primary:not(:disabled):hover{background:#3b82f6;border-color:#3b82f6;color:#fff;transform:translateY(-1px);box-shadow:0 4px 10px rgba(37,99,235,.25)}.primary:not(:disabled):active{transform:translateY(0);box-shadow:0 2px 5px rgba(37,99,235,.2);transition-duration:.08s}:root[data-theme="dark"] .primary:not(:disabled):hover{background:#2563eb;border-color:#2563eb;color:#fff}
+.artifact small,.artifact-actions{width:100%}.artifact-actions{display:flex;flex-wrap:wrap;gap:8px}
