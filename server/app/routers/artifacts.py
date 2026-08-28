@@ -123,6 +123,32 @@ async def convert_artifact(
             validation=str(exc),
         ) from exc
 
+    # A converted format is a sibling of the original artifact. Reuse it when
+    # it already exists so repeated clicks never create duplicate Saved Files
+    # entries or rerender the same document.
+    for sibling in artifact.job_session.artifacts:
+        if (
+            sibling.id != artifact.id
+            and sibling.artifact_type == artifact.artifact_type
+            and sibling.content_json == artifact.content_json
+            and _file_format(sibling.file_name) == target_format
+            and sibling.base64_file
+            and sibling.file_name
+            and sibling.mime_type
+        ):
+            warnings = [f"Reused existing {target_format.upper()} without regenerating content."]
+            notes = GenerationNotes(warnings=warnings)
+            if isinstance(document, TailoredResume):
+                notes.keywords_used = document.notes.keywords_used
+                notes.missing_requirements = document.notes.missing_requirements
+            return ArtifactResponse(
+                artifactId=sibling.id,
+                fileName=sibling.file_name,
+                mimeType=sibling.mime_type,
+                base64=sibling.base64_file,
+                notes=notes,
+            )
+
     try:
         if artifact.artifact_type == "resume":
             assert isinstance(document, TailoredResume)

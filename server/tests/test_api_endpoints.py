@@ -541,6 +541,11 @@ def test_convert_saved_resume_artifact_without_llm(client: TestClient, db_sessio
     assert "without regenerating content" in body["notes"]["warnings"][0]
     assert db_session.query(GeneratedArtifactModel).count() == 2
 
+    repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+    assert repeated.status_code == 200
+    assert repeated.json()["artifactId"] == body["artifactId"]
+    assert db_session.query(GeneratedArtifactModel).count() == 2
+
 
 def test_convert_saved_cover_letter_artifact_to_docx(
     client: TestClient, db_session: Session
@@ -567,6 +572,11 @@ def test_convert_saved_cover_letter_artifact_to_docx(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     assert body["base64"].startswith("UEsDB")
+
+    repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "docx"})
+    assert repeated.status_code == 200
+    assert repeated.json()["artifactId"] == body["artifactId"]
+    assert db_session.query(GeneratedArtifactModel).count() == 2
 
 
 def test_convert_saved_artifact_rejects_same_format(
