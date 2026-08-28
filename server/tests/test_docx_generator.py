@@ -101,6 +101,13 @@ async def test_render_resume_pdf_preserves_unicode_text() -> None:
     assert "\u041e\u043f\u044b\u0442 \u0440\u0430\u0431\u043e\u0442\u044b" in text
 
 
+async def test_render_resume_pdf_compact_remains_readable() -> None:
+    data, _ = await render_resume_pdf(_resume(), compact=True)
+    assert data.startswith(b"%PDF-")
+    text = "".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+    assert "Ada Lovelace" in text
+
+
 async def test_render_cover_letter_pdf_produces_readable_pdf() -> None:
     data, _ = await render_cover_letter_pdf(_cover_letter())
 

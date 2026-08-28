@@ -159,6 +159,7 @@ class ArtifactResponse(ApiModel):
 
 class DocumentFormatRequest(ApiModel):
     target_format: Literal["docx", "pdf"] = Field(default="docx", alias="targetFormat")
+    compact: bool = False
 
 
 ProviderName = Literal["openai", "gemini", "claude", "ollama"]

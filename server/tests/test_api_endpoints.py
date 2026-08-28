@@ -895,3 +895,26 @@ def test_legacy_generate_resume_rejects_empty_job_text(client: TestClient) -> No
         },
     )
     assert response.status_code == 422
+
+
+def test_generate_resume_pdf_error_returns_document_generation_failure(
+    client: TestClient,
+    db_session: Session,
+    stub_llm: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.pdf_generator import PdfGenerationError
+    from app.routers import job_sessions as job_sessions_router
+
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    async def fail_pdf(_: object, **__: object) -> tuple[bytes, dict[str, int]]:
+        raise PdfGenerationError("synthetic PDF failure")
+
+    monkeypatch.setattr(job_sessions_router, "render_resume_pdf", fail_pdf)
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-resume", json={"targetFormat": "pdf"}
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "DOCUMENT_GENERATION_FAILED"

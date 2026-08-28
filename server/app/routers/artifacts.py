@@ -153,18 +153,26 @@ async def convert_artifact(
         if artifact.artifact_type == "resume":
             assert isinstance(document, TailoredResume)
             if target_format == "pdf":
-                document_bytes, ats_replacements = await render_resume_pdf(document)
+                document_bytes, ats_replacements = await render_resume_pdf(
+                    document, compact=payload.compact
+                )
                 mime_type = PDF_MIME_TYPE
             else:
-                document_bytes, ats_replacements = await render_resume_docx(document)
+                document_bytes, ats_replacements = await render_resume_docx(
+                    document, compact=payload.compact
+                )
                 mime_type = DOCX_MIME_TYPE
         else:
             assert isinstance(document, CoverLetter)
             if target_format == "pdf":
-                document_bytes, ats_replacements = await render_cover_letter_pdf(document)
+                document_bytes, ats_replacements = await render_cover_letter_pdf(
+                    document, compact=payload.compact
+                )
                 mime_type = PDF_MIME_TYPE
             else:
-                document_bytes, ats_replacements = await render_cover_letter_docx(document)
+                document_bytes, ats_replacements = await render_cover_letter_docx(
+                    document, compact=payload.compact
+                )
                 mime_type = DOCX_MIME_TYPE
     except (DocxGenerationError, PdfGenerationError) as exc:
         raise fail(502, "DOCUMENT_GENERATION_FAILED", str(exc)) from exc

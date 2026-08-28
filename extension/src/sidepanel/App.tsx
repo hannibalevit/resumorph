@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
 import { isRequestCancelled } from "../shared/requestTimeout";
-import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY, DEFAULT_RESUME_FORMAT_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getDefaultCoverLetterFormat, getDefaultResumeFormat, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type DocumentFormat, type ThemePreference } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY, DEFAULT_RESUME_FORMAT_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getDefaultCoverLetterFormat, getDefaultResumeFormat, getOpenJobSessionIds, getThemePreference, isCompactDocumentLayoutEnabled, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type DocumentFormat, type ThemePreference } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
 import { OnboardingView } from "./OnboardingView";
@@ -110,6 +110,7 @@ export function App() {
   const [conversionFormat, setConversionFormat] = useState<DocumentFormat | null>(null);
   const [defaultResumeFormat, setDefaultResumeFormat] = useState<DocumentFormat>("docx");
   const [defaultCoverLetterFormat, setDefaultCoverLetterFormat] = useState<DocumentFormat>("docx");
+  const [compactDocumentLayout, setCompactDocumentLayout] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
@@ -143,6 +144,7 @@ export function App() {
     void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
     void getDefaultResumeFormat().then(setDefaultResumeFormat).catch(() => undefined);
     void getDefaultCoverLetterFormat().then(setDefaultCoverLetterFormat).catch(() => undefined);
+    void isCompactDocumentLayoutEnabled().then(setCompactDocumentLayout).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -354,7 +356,7 @@ export function App() {
     const controller = startCancellable();
     setBusy("resume"); setStatus("Generating resume…");
     try {
-      const file = await api.generateResume(sessionId, format, { signal: controller.signal });
+      const file = await api.generateResume(sessionId, format, { signal: controller.signal, compact: compactDocumentLayout });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);
@@ -370,7 +372,7 @@ export function App() {
     const controller = startCancellable();
     setBusy("coverLetter"); setStatus("Generating cover letter...");
     try {
-      const file = await api.generateCoverLetter(sessionId, format, { signal: controller.signal });
+      const file = await api.generateCoverLetter(sessionId, format, { signal: controller.signal, compact: compactDocumentLayout });
       download(file);
       const [updated, detail] = await Promise.all([api.session(sessionId), api.artifact(file.artifactId)]);
       setActiveSession(updated);
@@ -417,7 +419,7 @@ export function App() {
     setConversionFormat(targetFormat);
     setStatus(`Converting existing document to ${targetFormat.toUpperCase()}…`);
     try {
-      const file = await api.convertArtifact(artifactId, targetFormat);
+      const file = await api.convertArtifact(artifactId, targetFormat, { compact: compactDocumentLayout });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);

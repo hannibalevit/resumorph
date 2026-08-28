@@ -195,10 +195,14 @@ async def generate_session_resume(
     target_format = payload.target_format if payload else "docx"
     try:
         if target_format == "pdf":
-            document_bytes, ats_replacements = await render_resume_pdf(resume)
+            document_bytes, ats_replacements = await render_resume_pdf(
+                resume, compact=payload.compact if payload else False
+            )
             mime_type = PDF_MIME_TYPE
         else:
-            document_bytes, ats_replacements = await render_resume_docx(resume)
+            document_bytes, ats_replacements = await render_resume_docx(
+                resume, compact=payload.compact if payload else False
+            )
             mime_type = DOCX_MIME_TYPE
     except (DocxGenerationError, PdfGenerationError) as exc:
         raise fail(502, "DOCUMENT_GENERATION_FAILED", str(exc)) from exc
@@ -259,10 +263,14 @@ async def generate_cover_letter(
     target_format = payload.target_format if payload else "docx"
     try:
         if target_format == "pdf":
-            document_bytes, ats_replacements = await render_cover_letter_pdf(letter)
+            document_bytes, ats_replacements = await render_cover_letter_pdf(
+                letter, compact=payload.compact if payload else False
+            )
             mime_type = PDF_MIME_TYPE
         else:
-            document_bytes, ats_replacements = await render_cover_letter_docx(letter)
+            document_bytes, ats_replacements = await render_cover_letter_docx(
+                letter, compact=payload.compact if payload else False
+            )
             mime_type = DOCX_MIME_TYPE
     except (DocxGenerationError, PdfGenerationError) as exc:
         raise fail(502, "DOCUMENT_GENERATION_FAILED", str(exc)) from exc
