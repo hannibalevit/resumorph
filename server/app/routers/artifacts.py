@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, status
 from pydantic import ValidationError
@@ -34,6 +34,8 @@ from app.text_utils import resume_filename, safe_filename
 
 router = APIRouter()
 
+_RENDERED_FORMATS_KEY = "renderedFormats"
+
 
 def _file_format(file_name: str | None) -> str | None:
     suffix = Path(file_name or "").suffix.lower().lstrip(".")
@@ -57,6 +59,66 @@ def _conversion_file_name(
         "cover-letter", document.candidate_name, company, role, fallback="cover-letter"
     )
     return f"{stem}.{target_format}"
+
+
+def _stored_format(
+    artifact: GeneratedArtifactModel, target_format: Literal["docx", "pdf"]
+) -> dict[str, str] | None:
+    metadata = artifact.generation_metadata_json or {}
+    rendered_formats = metadata.get(_RENDERED_FORMATS_KEY)
+    if not isinstance(rendered_formats, dict):
+        return None
+    value = rendered_formats.get(target_format)
+    if not isinstance(value, dict):
+        return None
+    file_name = value.get("fileName")
+    mime_type = value.get("mimeType")
+    base64_file = value.get("base64")
+    if all(isinstance(item, str) and item for item in (file_name, mime_type, base64_file)):
+        return {
+            "fileName": cast(str, file_name),
+            "mimeType": cast(str, mime_type),
+            "base64": cast(str, base64_file),
+        }
+    return None
+
+
+def _store_rendered_format(
+    artifact: GeneratedArtifactModel,
+    target_format: Literal["docx", "pdf"],
+    *,
+    file_name: str,
+    mime_type: str,
+    base64_file: str,
+) -> None:
+    metadata = dict(artifact.generation_metadata_json or {})
+    rendered_formats = dict(metadata.get(_RENDERED_FORMATS_KEY) or {})
+    rendered_formats[target_format] = {
+        "fileName": file_name,
+        "mimeType": mime_type,
+        "base64": base64_file,
+    }
+    metadata[_RENDERED_FORMATS_KEY] = rendered_formats
+    artifact.generation_metadata_json = metadata
+
+
+def _conversion_response(
+    artifact: GeneratedArtifactModel,
+    stored_format: dict[str, str],
+    document: TailoredResume | CoverLetter,
+    warning: str,
+) -> ArtifactResponse:
+    notes = GenerationNotes(warnings=[warning])
+    if isinstance(document, TailoredResume):
+        notes.keywords_used = document.notes.keywords_used
+        notes.missing_requirements = document.notes.missing_requirements
+    return ArtifactResponse(
+        artifactId=artifact.id,
+        fileName=stored_format["fileName"],
+        mimeType=stored_format["mimeType"],
+        base64=stored_format["base64"],
+        notes=notes,
+    )
 
 
 @router.get("/api/artifacts/{artifact_id}", response_model=ArtifactDetail)
@@ -99,14 +161,8 @@ async def convert_artifact(
             "Only resume and cover letter artifacts can be converted.",
         )
 
-    source_format = _file_format(artifact.file_name)
     target_format = payload.target_format
-    if source_format == target_format:
-        raise fail(
-            400,
-            "FORMAT_ALREADY_EXISTS",
-            f"The artifact is already available as {target_format.upper()}.",
-        )
+    source_format = _file_format(artifact.file_name)
 
     try:
         if artifact.artifact_type == "resume":
@@ -123,9 +179,25 @@ async def convert_artifact(
             validation=str(exc),
         ) from exc
 
-    # A converted format is a sibling of the original artifact. Reuse it when
-    # it already exists so repeated clicks never create duplicate Saved Files
-    # entries or rerender the same document.
+    stored_format = _stored_format(artifact, target_format)
+    if stored_format:
+        return _conversion_response(
+            artifact,
+            stored_format,
+            document,
+            f"Reused existing {target_format.upper()} without regenerating content.",
+        )
+
+    if source_format == target_format:
+        raise fail(
+            400,
+            "FORMAT_ALREADY_EXISTS",
+            f"The artifact is already available as {target_format.upper()}.",
+        )
+
+    # Move any legacy sibling conversion into this generation's metadata and
+    # remove the extra row. Each LLM generation is represented by one card,
+    # regardless of how many download formats it has.
     for sibling in artifact.job_session.artifacts:
         if (
             sibling.id != artifact.id
@@ -136,17 +208,22 @@ async def convert_artifact(
             and sibling.file_name
             and sibling.mime_type
         ):
-            warnings = [f"Reused existing {target_format.upper()} without regenerating content."]
-            notes = GenerationNotes(warnings=warnings)
-            if isinstance(document, TailoredResume):
-                notes.keywords_used = document.notes.keywords_used
-                notes.missing_requirements = document.notes.missing_requirements
-            return ArtifactResponse(
-                artifactId=sibling.id,
-                fileName=sibling.file_name,
-                mimeType=sibling.mime_type,
-                base64=sibling.base64_file,
-                notes=notes,
+            _store_rendered_format(
+                artifact,
+                target_format,
+                file_name=sibling.file_name,
+                mime_type=sibling.mime_type,
+                base64_file=sibling.base64_file,
+            )
+            db.delete(sibling)
+            db.commit()
+            stored_format = _stored_format(artifact, target_format)
+            assert stored_format is not None
+            return _conversion_response(
+                artifact,
+                stored_format,
+                document,
+                f"Reused existing {target_format.upper()} without regenerating content.",
             )
 
     try:
@@ -189,36 +266,19 @@ async def convert_artifact(
             "character(s) to plain-ASCII equivalents."
         )
     base64_file = base64.b64encode(document_bytes).decode("ascii")
-    converted = GeneratedArtifactModel(
-        job_session_id=artifact.job_session_id,
-        artifact_type=artifact.artifact_type,
-        title=artifact.title,
+    _store_rendered_format(
+        artifact,
+        target_format,
         file_name=file_name,
         mime_type=mime_type,
         base64_file=base64_file,
-        content_json=artifact.content_json,
-        llm_provider=artifact.llm_provider,
-        llm_model=artifact.llm_model,
-        prompt_version=artifact.prompt_version,
-        generation_metadata_json={
-            "derivedFromArtifactId": artifact.id,
-            "sourceFormat": source_format,
-            "targetFormat": target_format,
-        },
     )
-    db.add(converted)
     db.commit()
-    db.refresh(converted)
-    notes = GenerationNotes(warnings=warnings)
-    if isinstance(document, TailoredResume):
-        notes.keywords_used = document.notes.keywords_used
-        notes.missing_requirements = document.notes.missing_requirements
-    return ArtifactResponse(
-        artifactId=converted.id,
-        fileName=file_name,
-        mimeType=mime_type,
-        base64=base64_file,
-        notes=notes,
+    return _conversion_response(
+        artifact,
+        {"fileName": file_name, "mimeType": mime_type, "base64": base64_file},
+        document,
+        warnings[0],
     )
 
 

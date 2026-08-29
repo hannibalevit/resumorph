@@ -539,12 +539,13 @@ def test_convert_saved_resume_artifact_without_llm(client: TestClient, db_sessio
     assert body["mimeType"] == "application/pdf"
     assert body["base64"].startswith("JVBER")
     assert "without regenerating content" in body["notes"]["warnings"][0]
-    assert db_session.query(GeneratedArtifactModel).count() == 2
+    assert body["artifactId"] == artifact.id
+    assert db_session.query(GeneratedArtifactModel).count() == 1
 
     repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
     assert repeated.status_code == 200
     assert repeated.json()["artifactId"] == body["artifactId"]
-    assert db_session.query(GeneratedArtifactModel).count() == 2
+    assert db_session.query(GeneratedArtifactModel).count() == 1
 
 
 def test_convert_saved_cover_letter_artifact_to_docx(
@@ -572,11 +573,13 @@ def test_convert_saved_cover_letter_artifact_to_docx(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     assert body["base64"].startswith("UEsDB")
+    assert body["artifactId"] == artifact.id
+    assert db_session.query(GeneratedArtifactModel).count() == 1
 
     repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "docx"})
     assert repeated.status_code == 200
     assert repeated.json()["artifactId"] == body["artifactId"]
-    assert db_session.query(GeneratedArtifactModel).count() == 2
+    assert db_session.query(GeneratedArtifactModel).count() == 1
 
 
 def test_convert_saved_artifact_rejects_same_format(
