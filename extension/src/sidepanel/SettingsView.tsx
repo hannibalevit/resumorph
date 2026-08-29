@@ -460,18 +460,30 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
         </label>
       </div>
       <div className="toggle-row format-setting-row">
-        <div>
+        <div className="format-setting-copy">
           <h3>Default CV format</h3>
           <p className="muted">Choose which format the header action uses when generating your resume.</p>
         </div>
-        <label className="toggle-switch"><input type="checkbox" checked={defaultResumeFormat === "pdf"} onChange={(event) => void changeDefaultResumeFormat(event.target.checked ? "pdf" : "docx")} aria-label="Use PDF as default CV format" /><span className="toggle-slider" aria-hidden="true" /></label>
+        <div className="seg" role="radiogroup" aria-label="Default CV format">
+          <input type="radio" id="default-cv-format-docx" name="default-cv-format" checked={defaultResumeFormat === "docx"} onChange={() => void changeDefaultResumeFormat("docx")} />
+          <label htmlFor="default-cv-format-docx">DOCX</label>
+          <input type="radio" id="default-cv-format-pdf" name="default-cv-format" checked={defaultResumeFormat === "pdf"} onChange={() => void changeDefaultResumeFormat("pdf")} />
+          <label htmlFor="default-cv-format-pdf">PDF</label>
+          <span className="seg-thumb" aria-hidden="true" />
+        </div>
       </div>
       <div className="toggle-row format-setting-row">
-        <div>
+        <div className="format-setting-copy">
           <h3>Default cover letter format</h3>
           <p className="muted">Choose which format the header action uses when generating your cover letter.</p>
         </div>
-        <label className="toggle-switch"><input type="checkbox" checked={defaultCoverLetterFormat === "pdf"} onChange={(event) => void changeDefaultCoverLetterFormat(event.target.checked ? "pdf" : "docx")} aria-label="Use PDF as default cover letter format" /><span className="toggle-slider" aria-hidden="true" /></label>
+        <div className="seg" role="radiogroup" aria-label="Default cover letter format">
+          <input type="radio" id="default-cover-letter-format-docx" name="default-cover-letter-format" checked={defaultCoverLetterFormat === "docx"} onChange={() => void changeDefaultCoverLetterFormat("docx")} />
+          <label htmlFor="default-cover-letter-format-docx">DOCX</label>
+          <input type="radio" id="default-cover-letter-format-pdf" name="default-cover-letter-format" checked={defaultCoverLetterFormat === "pdf"} onChange={() => void changeDefaultCoverLetterFormat("pdf")} />
+          <label htmlFor="default-cover-letter-format-pdf">PDF</label>
+          <span className="seg-thumb" aria-hidden="true" />
+        </div>
       </div>
       <div className="toggle-row">
         <div><h3>Compact document layout</h3><p className="muted">Use tighter margins and spacing for longer resumes and cover letters.</p></div>
