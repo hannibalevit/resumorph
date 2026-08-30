@@ -7,9 +7,13 @@ export const EXTENSION_ENABLED_STORAGE_KEY = "extensionEnabled";
 export const BACKEND_CONNECTED_STORAGE_KEY = "backendConnected";
 export const THEME_PREFERENCE_STORAGE_KEY = "themePreference";
 export const DEBUG_INFO_ENABLED_STORAGE_KEY = "debugInfoEnabled";
+export const DEFAULT_RESUME_FORMAT_STORAGE_KEY = "defaultResumeFormat";
+export const DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY = "defaultCoverLetterFormat";
+export const COMPACT_DOCUMENT_LAYOUT_STORAGE_KEY = "compactDocumentLayout";
 export const MAX_OPEN_JOB_TABS = 5;
 
 export type ThemePreference = "light" | "dark";
+export type DocumentFormat = "docx" | "pdf";
 
 type ResumeStorageShape = {
   [BASE_RESUME_KEY]?: string;
@@ -19,6 +23,9 @@ type ResumeStorageShape = {
   [OPEN_JOB_SESSION_IDS_KEY]?: string[];
   [THEME_PREFERENCE_STORAGE_KEY]?: ThemePreference;
   [DEBUG_INFO_ENABLED_STORAGE_KEY]?: boolean;
+  [DEFAULT_RESUME_FORMAT_STORAGE_KEY]?: DocumentFormat;
+  [DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY]?: DocumentFormat;
+  [COMPACT_DOCUMENT_LAYOUT_STORAGE_KEY]?: boolean;
 };
 
 export async function getBaseResume(): Promise<string | null> {
@@ -93,4 +100,35 @@ export async function isDebugInfoEnabled(): Promise<boolean> {
 
 export async function saveDebugInfoEnabled(enabled: boolean): Promise<void> {
   await chrome.storage.local.set({ [DEBUG_INFO_ENABLED_STORAGE_KEY]: enabled });
+}
+
+function normalizeDocumentFormat(value: unknown): DocumentFormat {
+  return value === "pdf" ? "pdf" : "docx";
+}
+
+export async function getDefaultResumeFormat(): Promise<DocumentFormat> {
+  const result = await chrome.storage.local.get(DEFAULT_RESUME_FORMAT_STORAGE_KEY) as ResumeStorageShape;
+  return normalizeDocumentFormat(result[DEFAULT_RESUME_FORMAT_STORAGE_KEY]);
+}
+
+export async function saveDefaultResumeFormat(format: DocumentFormat): Promise<void> {
+  await chrome.storage.local.set({ [DEFAULT_RESUME_FORMAT_STORAGE_KEY]: format });
+}
+
+export async function getDefaultCoverLetterFormat(): Promise<DocumentFormat> {
+  const result = await chrome.storage.local.get(DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY) as ResumeStorageShape;
+  return normalizeDocumentFormat(result[DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY]);
+}
+
+export async function saveDefaultCoverLetterFormat(format: DocumentFormat): Promise<void> {
+  await chrome.storage.local.set({ [DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY]: format });
+}
+
+export async function isCompactDocumentLayoutEnabled(): Promise<boolean> {
+  const result = await chrome.storage.local.get(COMPACT_DOCUMENT_LAYOUT_STORAGE_KEY) as ResumeStorageShape;
+  return result[COMPACT_DOCUMENT_LAYOUT_STORAGE_KEY] === true;
+}
+
+export async function saveCompactDocumentLayout(enabled: boolean): Promise<void> {
+  await chrome.storage.local.set({ [COMPACT_DOCUMENT_LAYOUT_STORAGE_KEY]: enabled });
 }

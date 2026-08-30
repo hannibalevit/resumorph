@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { api, type LlmTaskName, type ProviderConfig, type ProviderName, type ProviderSettings } from "../shared/apiClient";
 import { isLocalUrlProvider, PROVIDERS, providerLabel } from "../shared/llmProviders";
-import { getThemePreference, isDebugInfoEnabled, saveDebugInfoEnabled, saveThemePreference, type ThemePreference } from "../shared/storage";
+import { getDefaultCoverLetterFormat, getDefaultResumeFormat, getThemePreference, isCompactDocumentLayoutEnabled, isDebugInfoEnabled, saveCompactDocumentLayout, saveDebugInfoEnabled, saveDefaultCoverLetterFormat, saveDefaultResumeFormat, saveThemePreference, type DocumentFormat, type ThemePreference } from "../shared/storage";
 import { NoticeLine, useNotice } from "./notice";
 
 const TASKS: Array<{ id: LlmTaskName; label: string; description: string }> = [
@@ -39,6 +39,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<"resume" | "llm" | "tasks" | "general">("general");
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
+  const [defaultResumeFormat, setDefaultResumeFormat] = useState<DocumentFormat>("docx");
+  const [defaultCoverLetterFormat, setDefaultCoverLetterFormat] = useState<DocumentFormat>("docx");
+  const [compactDocumentLayout, setCompactDocumentLayout] = useState(false);
   const [settings, setSettings] = useState<ProviderSettings | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>({});
@@ -87,6 +90,9 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
     void loadResumeState();
     void getThemePreference().then(setTheme).catch(() => undefined);
     void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
+    void getDefaultResumeFormat().then(setDefaultResumeFormat).catch(() => undefined);
+    void getDefaultCoverLetterFormat().then(setDefaultCoverLetterFormat).catch(() => undefined);
+    void isCompactDocumentLayoutEnabled().then(setCompactDocumentLayout).catch(() => undefined);
   }, []);
 
   const changeTheme = async (next: ThemePreference) => {
@@ -97,6 +103,21 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
   const changeDebugInfoEnabled = async (enabled: boolean) => {
     setDebugInfoEnabled(enabled);
     await saveDebugInfoEnabled(enabled);
+  };
+
+  const changeDefaultResumeFormat = async (format: DocumentFormat) => {
+    setDefaultResumeFormat(format);
+    await saveDefaultResumeFormat(format);
+  };
+
+  const changeDefaultCoverLetterFormat = async (format: DocumentFormat) => {
+    setDefaultCoverLetterFormat(format);
+    await saveDefaultCoverLetterFormat(format);
+  };
+
+  const changeCompactDocumentLayout = async (enabled: boolean) => {
+    setCompactDocumentLayout(enabled);
+    await saveCompactDocumentLayout(enabled);
   };
 
   const config = (provider: ProviderName): ProviderConfig | undefined => settings?.providers.find((item) => item.provider === provider);
@@ -437,6 +458,36 @@ export function SettingsView({ onResumeSaved }: SettingsViewProps) {
           <input type="checkbox" checked={debugInfoEnabled} onChange={(event) => void changeDebugInfoEnabled(event.target.checked)} aria-label="Toggle debug information" />
           <span className="toggle-slider" aria-hidden="true" />
         </label>
+      </div>
+      <div className="toggle-row format-setting-row">
+        <div className="format-setting-copy">
+          <h3>Default CV format</h3>
+          <p className="muted">Choose which format the header action uses when generating your resume.</p>
+        </div>
+        <div className="seg" role="radiogroup" aria-label="Default CV format">
+          <input type="radio" id="default-cv-format-docx" name="default-cv-format" checked={defaultResumeFormat === "docx"} onChange={() => void changeDefaultResumeFormat("docx")} />
+          <label htmlFor="default-cv-format-docx">DOCX</label>
+          <input type="radio" id="default-cv-format-pdf" name="default-cv-format" checked={defaultResumeFormat === "pdf"} onChange={() => void changeDefaultResumeFormat("pdf")} />
+          <label htmlFor="default-cv-format-pdf">PDF</label>
+          <span className="seg-thumb" aria-hidden="true" />
+        </div>
+      </div>
+      <div className="toggle-row format-setting-row">
+        <div className="format-setting-copy">
+          <h3>Default cover letter format</h3>
+          <p className="muted">Choose which format the header action uses when generating your cover letter.</p>
+        </div>
+        <div className="seg" role="radiogroup" aria-label="Default cover letter format">
+          <input type="radio" id="default-cover-letter-format-docx" name="default-cover-letter-format" checked={defaultCoverLetterFormat === "docx"} onChange={() => void changeDefaultCoverLetterFormat("docx")} />
+          <label htmlFor="default-cover-letter-format-docx">DOCX</label>
+          <input type="radio" id="default-cover-letter-format-pdf" name="default-cover-letter-format" checked={defaultCoverLetterFormat === "pdf"} onChange={() => void changeDefaultCoverLetterFormat("pdf")} />
+          <label htmlFor="default-cover-letter-format-pdf">PDF</label>
+          <span className="seg-thumb" aria-hidden="true" />
+        </div>
+      </div>
+      <div className="toggle-row">
+        <div><h3>Compact document layout</h3><p className="muted">Use tighter margins and spacing for longer resumes and cover letters.</p></div>
+        <label className="toggle-switch"><input type="checkbox" checked={compactDocumentLayout} onChange={(event) => void changeCompactDocumentLayout(event.target.checked)} aria-label="Toggle compact document layout" /><span className="toggle-slider" aria-hidden="true" /></label>
       </div>
     </section> : activeTab === "resume" ? <section className="settings-panel">
       <h3>Base resume</h3>

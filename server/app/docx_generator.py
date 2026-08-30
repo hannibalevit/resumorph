@@ -25,6 +25,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Emu, Inches, Length, Mm, Pt, RGBColor
 
 from app.schemas import CoverLetter, TailoredResume
+from app.text_utils import clean_text, headings_for, split_contact_lines
 
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -159,202 +160,11 @@ def _configure_styles(document: DocumentType, compact: bool) -> None:
             _set_heading_border(style.element)
 
 
-# === Section heading translations ============================================
-# TailoredResume carries a single `language` BCP-47 code but no per-section
-# heading strings, so headings are looked up from this table by primary
-# subtag rather than hard-coded in English (falls back to English for any
-# language not listed here).
-
-_SECTION_HEADINGS: dict[str, dict[str, str]] = {
-    "en": {
-        "summary": "Professional Summary",
-        "competencies": "Core Competencies",
-        "experience": "Work Experience",
-        "projects": "Projects",
-        "education": "Education",
-        "certifications": "Certifications",
-        "skills": "Skills",
-        "languages": "Languages",
-    },
-    "ru": {
-        "summary": "Профессиональный профиль",
-        "competencies": "Ключевые компетенции",
-        "experience": "Опыт работы",
-        "projects": "Проекты",
-        "education": "Образование",
-        "certifications": "Сертификаты",
-        "skills": "Навыки",
-        "languages": "Языки",
-    },
-    "de": {
-        "summary": "Berufliches Profil",
-        "competencies": "Kernkompetenzen",
-        "experience": "Berufserfahrung",
-        "projects": "Projekte",
-        "education": "Ausbildung",
-        "certifications": "Zertifizierungen",
-        "skills": "Fähigkeiten",
-        "languages": "Sprachkenntnisse",
-    },
-    "fr": {
-        "summary": "Profil professionnel",
-        "competencies": "Compétences clés",
-        "experience": "Expérience professionnelle",
-        "projects": "Projets",
-        "education": "Formation",
-        "certifications": "Certifications",
-        "skills": "Compétences",
-        "languages": "Langues",
-    },
-    "es": {
-        "summary": "Perfil profesional",
-        "competencies": "Competencias clave",
-        "experience": "Experiencia laboral",
-        "projects": "Proyectos",
-        "education": "Educación",
-        "certifications": "Certificaciones",
-        "skills": "Habilidades",
-        "languages": "Idiomas",
-    },
-    "pt": {
-        "summary": "Perfil profissional",
-        "competencies": "Competências principais",
-        "experience": "Experiência profissional",
-        "projects": "Projetos",
-        "education": "Formação",
-        "certifications": "Certificações",
-        "skills": "Habilidades",
-        "languages": "Idiomas",
-    },
-    "it": {
-        "summary": "Profilo professionale",
-        "competencies": "Competenze chiave",
-        "experience": "Esperienza lavorativa",
-        "projects": "Progetti",
-        "education": "Istruzione",
-        "certifications": "Certificazioni",
-        "skills": "Competenze",
-        "languages": "Lingue",
-    },
-    "nl": {
-        "summary": "Professioneel profiel",
-        "competencies": "Kernkwaliteiten",
-        "experience": "Werkervaring",
-        "projects": "Projecten",
-        "education": "Opleiding",
-        "certifications": "Certificeringen",
-        "skills": "Vaardigheden",
-        "languages": "Talen",
-    },
-    "pl": {
-        "summary": "Profil zawodowy",
-        "competencies": "Kluczowe kompetencje",
-        "experience": "Doświadczenie zawodowe",
-        "projects": "Projekty",
-        "education": "Wykształcenie",
-        "certifications": "Certyfikaty",
-        "skills": "Umiejętności",
-        "languages": "Języki",
-    },
-}
-
-
-def _headings_for(language: str | None) -> dict[str, str]:
-    primary = (language or "en").split("-")[0].lower()
-    return _SECTION_HEADINGS.get(primary, _SECTION_HEADINGS["en"])
-
-
-# === ATS text hygiene ==========================================================
-# Same character-level substitutions the PDF path used to apply (ported as-is):
-# straight quotes/hyphens only, no zero-width or non-breaking characters, spelled
-# out currency symbols. Tracks replacement counts so callers can surface a
-# "we normalized N characters" warning.
-
-
-def _sanitize_text(text: str, bump) -> str:
-    if not text:
-        return text
-    t = text
-    t, n = re.subn("—", "-", t)
-    if n:
-        bump("em-dash", n)
-    t, n = re.subn("–", "-", t)
-    if n:
-        bump("en-dash", n)
-    t, n = re.subn("[“”„‟]", '"', t)
-    if n:
-        bump("smart-double-quote", n)
-    t, n = re.subn("[‘’‚‛]", "'", t)
-    if n:
-        bump("smart-single-quote", n)
-    t, n = re.subn("…", "...", t)
-    if n:
-        bump("ellipsis", n)
-    t, n = re.subn("[​‌‍⁠﻿]", "", t)
-    if n:
-        bump("zero-width", n)
-    t, n = re.subn("\xa0", " ", t)
-    if n:
-        bump("nbsp", n)
-    t, n = re.subn(r"\s*→\s*", " to ", t)
-    if n:
-        bump("right-arrow", n)
-    t, n = re.subn(r"\s*←\s*", " from ", t)
-    if n:
-        bump("left-arrow", n)
-    t, n = re.subn(r"\s*[↑↓]\s*", " ", t)
-    if n:
-        bump("vert-arrow", n)
-    t, n = re.subn(r"\s*·\s*", " | ", t)
-    if n:
-        bump("middot", n)
-    t, n = re.subn(r"\s*•\s*", " | ", t)
-    if n:
-        bump("bullet", n)
-    t, n = re.subn("€", "EUR ", t)
-    if n:
-        bump("euro", n)
-    t, n = re.subn("£", "GBP ", t)
-    if n:
-        bump("pound", n)
-    return t
-
-
-def _clean(text: str | None, counts: dict[str, int]) -> str:
-    def bump(key: str, n: int) -> None:
-        counts[key] = counts.get(key, 0) + n
-
-    return _sanitize_text(text or "", bump)
-
-
-# === Contact line splitting ===================================================
-# TailoredResume.contact_info is a single free-form " | "-joined string (no
-# separate city/phone/email/url fields), so the two-line contact block the
-# template calls for is produced by classifying each " | " segment as a URL or
-# not, rather than by a schema change.
-
-_URL_TOKEN_RE = re.compile(r"^(https?://)?(www\.)?[\w.-]+\.[a-z]{2,}(/\S*)?$", re.IGNORECASE)
-
-
-def _is_url_token(token: str) -> bool:
-    token = token.strip()
-    if not token or "@" in token:
-        return False
-    return bool(_URL_TOKEN_RE.match(token))
-
-
-def _split_contact_lines(contact_info: str) -> tuple[str, str]:
-    parts = [part.strip() for part in re.split(r"\s*\|\s*", contact_info) if part.strip()]
-    primary = [part for part in parts if not _is_url_token(part)]
-    urls = [part for part in parts if _is_url_token(part)]
-    return " | ".join(primary), " | ".join(urls)
-
-
 # === Paragraph builders ========================================================
 
 
 def _p(document: DocumentType, text: str, style: str, counts: dict[str, int]):
-    return document.add_paragraph(_clean(text, counts), style=style)
+    return document.add_paragraph(clean_text(text, counts), style=style)
 
 
 def _tab_line(
@@ -365,8 +175,8 @@ def _tab_line(
     usable_width: Emu,
     counts: dict[str, int],
 ):
-    left_clean = _clean(left, counts)
-    right_clean = _clean(right, counts) if right else ""
+    left_clean = clean_text(left, counts)
+    right_clean = clean_text(right, counts) if right else ""
     paragraph = document.add_paragraph(style=style)
     if right_clean:
         paragraph.paragraph_format.tab_stops.add_tab_stop(usable_width, WD_TAB_ALIGNMENT.RIGHT)
@@ -386,11 +196,11 @@ def _build_resume_document(
     document = Document()
     _configure_styles(document, compact)
     usable_width = _configure_section(document.sections[0], resume.page_format, compact)
-    headings = _headings_for(resume.language)
+    headings = headings_for(resume.language)
 
     _p(document, resume.candidate_name, "ResumeName", counts)
 
-    primary_line, url_line = _split_contact_lines(resume.contact_info or "")
+    primary_line, url_line = split_contact_lines(resume.contact_info or "")
     if primary_line:
         _p(document, primary_line, "ContactLine", counts)
     if url_line:
@@ -483,7 +293,7 @@ def _build_cover_letter_document(
 
     _p(document, letter.candidate_name, "ResumeName", counts)
 
-    primary_line, url_line = _split_contact_lines(letter.contact_info or "")
+    primary_line, url_line = split_contact_lines(letter.contact_info or "")
     if primary_line:
         _p(document, primary_line, "ContactLine", counts)
     if url_line:

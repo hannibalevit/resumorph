@@ -137,3 +137,32 @@ describe("apiClient provider payloads", () => {
     expect(body.refresh).toBe(false);
   });
 });
+
+describe("apiClient document generation payloads", () => {
+  beforeEach(() => {
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+        },
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse()));
+  });
+
+  it("sends the selected output format for generated documents", async () => {
+    await api.generateResume("job-1", "pdf");
+    expect(await lastRequestUrl()).toBe(`${DEFAULT_API_BASE_URL}/api/job-sessions/job-1/generate-resume`);
+    expect(await lastRequestBody()).toEqual({ targetFormat: "pdf" });
+
+    await api.generateCoverLetter("job-1", "docx");
+    expect(await lastRequestUrl()).toBe(`${DEFAULT_API_BASE_URL}/api/job-sessions/job-1/generate-cover-letter`);
+    expect(await lastRequestBody()).toEqual({ targetFormat: "docx" });
+  });
+
+  it("converts a saved artifact to the selected output format", async () => {
+    await api.convertArtifact("artifact-1", "pdf");
+    expect(await lastRequestUrl()).toBe(`${DEFAULT_API_BASE_URL}/api/artifacts/artifact-1/convert`);
+    expect(await lastRequestBody()).toEqual({ targetFormat: "pdf" });
+  });
+});

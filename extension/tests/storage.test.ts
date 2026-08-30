@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { DEFAULT_API_BASE_URL, normalizeApiBaseUrl } from "../src/shared/storage";
+import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_API_BASE_URL, getDefaultCoverLetterFormat, getDefaultResumeFormat, normalizeApiBaseUrl, saveDefaultCoverLetterFormat, saveDefaultResumeFormat } from "../src/shared/storage";
 
 describe("storage helpers", () => {
   it("normalizes API base URLs before saving or using them", () => {
@@ -9,5 +9,18 @@ describe("storage helpers", () => {
 
   it("falls back to the local backend URL for blank input", () => {
     expect(normalizeApiBaseUrl("   ")).toBe(DEFAULT_API_BASE_URL);
+  });
+
+  it("defaults document formats to DOCX and persists explicit choices", async () => {
+    const get = vi.fn(async () => ({}));
+    const set = vi.fn(async () => undefined);
+    vi.stubGlobal("chrome", { storage: { local: { get, set } } });
+
+    expect(await getDefaultResumeFormat()).toBe("docx");
+    expect(await getDefaultCoverLetterFormat()).toBe("docx");
+    await saveDefaultResumeFormat("pdf");
+    await saveDefaultCoverLetterFormat("pdf");
+    expect(set).toHaveBeenNthCalledWith(1, { defaultResumeFormat: "pdf" });
+    expect(set).toHaveBeenNthCalledWith(2, { defaultCoverLetterFormat: "pdf" });
   });
 });

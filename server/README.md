@@ -12,7 +12,7 @@ uv sync --dev        # ...including test deps (pytest, ruff, mypy, …)
 cp .env.example .env
 ```
 
-Edit `.env` and set `MASTER_ENCRYPTION_KEY` to a Fernet key (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — this encrypts the LLM provider API keys at rest. You don't need to put a provider API key in `.env`: OpenAI/Gemini/Claude keys are entered later through the extension's Settings panel and stored encrypted in the local SQLite database, never in an env var. (The optional `OPENAI_API_KEY` env var only powers the deprecated non-session `POST /api/generate-resume` endpoint in `routers/legacy.py`.)
+Edit `.env` and set `MASTER_ENCRYPTION_KEY` to a Fernet key (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — this encrypts the LLM provider API keys at rest. You don't need to put a provider API key in `.env`: OpenAI/Gemini/Claude keys are entered later through the extension's Settings panel and stored encrypted in the local SQLite database, never in an env var. (The optional `OPENAI_API_KEY` env var only powers the deprecated non-session `POST /api/generate-resume` endpoint in `routers/legacy.py`. That backwards-compatible endpoint intentionally remains DOCX-only; the session endpoints are the supported DOCX/PDF flow.)
 
 For **Ollama**, set `OLLAMA_BASE_URL` (default `http://localhost:11434`) and optionally
 `OLLAMA_TIMEOUT_SECONDS` (generation, default 300), `OLLAMA_CONNECT_TIMEOUT_SECONDS`

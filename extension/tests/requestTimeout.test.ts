@@ -99,7 +99,7 @@ describe("apiClient timeouts", () => {
 
   it("aborts the underlying fetch when a generation is cancelled", async () => {
     const controller = new AbortController();
-    const promise = api.generateResume("job-1", { signal: controller.signal });
+    const promise = api.generateResume("job-1", "pdf", { signal: controller.signal });
     await vi.advanceTimersByTimeAsync(0);
 
     const init = vi.mocked(fetch).mock.calls.at(-1)?.[1];

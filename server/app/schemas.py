@@ -157,6 +157,11 @@ class ArtifactResponse(ApiModel):
     notes: GenerationNotes
 
 
+class DocumentFormatRequest(ApiModel):
+    target_format: Literal["docx", "pdf"] = Field(default="docx", alias="targetFormat")
+    compact: bool = False
+
+
 ProviderName = Literal["openai", "gemini", "claude", "ollama"]
 LlmTaskName = Literal["scan", "resume", "field_answer"]
 

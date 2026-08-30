@@ -180,6 +180,23 @@ def test_generate_session_resume(client: TestClient, db_session: Session, stub_l
     assert body["base64"]
 
 
+def test_generate_session_resume_as_pdf(
+    client: TestClient, db_session: Session, stub_llm: None
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-resume", json={"targetFormat": "pdf"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "Ada_Lovelace_Acme_Resume.pdf"
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
+
+
 def test_generate_session_resume_requires_base_resume(
     client: TestClient, db_session: Session, stub_llm: None
 ) -> None:
@@ -202,6 +219,24 @@ def test_generate_cover_letter(client: TestClient, db_session: Session, stub_llm
 
     assert response.status_code == 200
     assert response.json()["fileName"].endswith(".docx")
+
+
+def test_generate_cover_letter_as_pdf(
+    client: TestClient, db_session: Session, stub_llm: None
+) -> None:
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-cover-letter",
+        json={"targetFormat": "pdf"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"].endswith(".pdf")
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
 
 
 def test_generate_cover_letter_uses_latest_tailored_resume(
@@ -478,6 +513,94 @@ def test_get_and_delete_artifact(client: TestClient, db_session: Session) -> Non
 def test_artifact_not_found(client: TestClient) -> None:
     assert client.get("/api/artifacts/missing").status_code == 404
     assert client.delete("/api/artifacts/missing").status_code == 404
+
+
+def test_convert_saved_resume_artifact_without_llm(client: TestClient, db_session: Session) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="resume",
+        title="Resume — Backend Engineer",
+        file_name="Ada_Lovelace_Acme_Resume.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content_json=STUB_GENERATION,
+        llm_provider="openai",
+        llm_model="gpt-test",
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "Ada_Lovelace_Acme_Resume.pdf"
+    assert body["mimeType"] == "application/pdf"
+    assert body["base64"].startswith("JVBER")
+    assert "without regenerating content" in body["notes"]["warnings"][0]
+    assert body["artifactId"] == artifact.id
+    assert db_session.query(GeneratedArtifactModel).count() == 1
+
+    repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+    assert repeated.status_code == 200
+    assert repeated.json()["artifactId"] == body["artifactId"]
+    assert db_session.query(GeneratedArtifactModel).count() == 1
+
+
+def test_convert_saved_cover_letter_artifact_to_docx(
+    client: TestClient, db_session: Session
+) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="cover_letter",
+        title="Cover letter — Backend Engineer",
+        file_name="cover-letter-ada-lovelace-acme.pdf",
+        mime_type="application/pdf",
+        content_json=STUB_GENERATION,
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "docx"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fileName"] == "cover-letter-ada-lovelace-acme-backend-engineer.docx"
+    assert body["mimeType"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert body["base64"].startswith("UEsDB")
+    assert body["artifactId"] == artifact.id
+    assert db_session.query(GeneratedArtifactModel).count() == 1
+
+    repeated = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "docx"})
+    assert repeated.status_code == 200
+    assert repeated.json()["artifactId"] == body["artifactId"]
+    assert db_session.query(GeneratedArtifactModel).count() == 1
+
+
+def test_convert_saved_artifact_rejects_same_format(
+    client: TestClient, db_session: Session
+) -> None:
+    session = _seed_session(db_session)
+    artifact = GeneratedArtifactModel(
+        job_session_id=session.id,
+        artifact_type="resume",
+        title="Resume",
+        file_name="resume.pdf",
+        content_json=STUB_GENERATION,
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+
+    response = client.post(f"/api/artifacts/{artifact.id}/convert", json={"targetFormat": "pdf"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "FORMAT_ALREADY_EXISTS"
 
 
 # ---------------------------------------------------------------------------
@@ -775,3 +898,26 @@ def test_legacy_generate_resume_rejects_empty_job_text(client: TestClient) -> No
         },
     )
     assert response.status_code == 422
+
+
+def test_generate_resume_pdf_error_returns_document_generation_failure(
+    client: TestClient,
+    db_session: Session,
+    stub_llm: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.pdf_generator import PdfGenerationError
+    from app.routers import job_sessions as job_sessions_router
+
+    _seed_profile(db_session)
+    session = _seed_session(db_session)
+
+    async def fail_pdf(_: object, **__: object) -> tuple[bytes, dict[str, int]]:
+        raise PdfGenerationError("synthetic PDF failure")
+
+    monkeypatch.setattr(job_sessions_router, "render_resume_pdf", fail_pdf)
+    response = client.post(
+        f"/api/job-sessions/{session.id}/generate-resume", json={"targetFormat": "pdf"}
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "DOCUMENT_GENERATION_FAILED"

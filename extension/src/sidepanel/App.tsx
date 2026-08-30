@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ArtifactDetail, type GeneratedFile } from "../shared/apiClient";
 import { isBlockedUrl } from "../shared/blockedSites";
 import { isRequestCancelled } from "../shared/requestTimeout";
-import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getOpenJobSessionIds, getThemePreference, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type ThemePreference } from "../shared/storage";
+import { BACKEND_CONNECTED_STORAGE_KEY, DEBUG_INFO_ENABLED_STORAGE_KEY, DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY, DEFAULT_RESUME_FORMAT_STORAGE_KEY, EXTENSION_ENABLED_STORAGE_KEY, MAX_OPEN_JOB_TABS, THEME_PREFERENCE_STORAGE_KEY, getDefaultCoverLetterFormat, getDefaultResumeFormat, getOpenJobSessionIds, getThemePreference, isCompactDocumentLayoutEnabled, isDebugInfoEnabled, isExtensionEnabled, isOnboardingComplete, saveExtensionEnabled, setOpenJobSessionIds, type DocumentFormat, type ThemePreference } from "../shared/storage";
 import type { JobSession, JobSessionSummary, PageSnapshot } from "../shared/sidepanelTypes";
 import { HistoryView } from "./HistoryView";
 import { OnboardingView } from "./OnboardingView";
@@ -10,7 +10,7 @@ import { SettingsView } from "./SettingsView";
 
 type ActiveTab = { id?: number; url?: string; title?: string };
 type BackendStatus = "checking" | "connected" | "disconnected";
-type BusyState = "scan" | "manualScan" | "resume" | "coverLetter" | "reconnect" | "download" | null;
+type BusyState = "scan" | "manualScan" | "resume" | "coverLetter" | "convert" | "reconnect" | "download" | null;
 // LLM-backed actions: minutes on a cold local model, so each one is cancellable.
 const CANCELLABLE_ACTIONS: BusyState[] = ["scan", "manualScan", "resume", "coverLetter"];
 const MAX_SCAN_TEXT_LENGTH = 80_000;
@@ -106,6 +106,11 @@ export function App() {
   const [extensionActive, setExtensionActive] = useState(true);
   const [status, setStatus] = useState("Ready to scan this page.");
   const [busy, setBusy] = useState<BusyState>(null);
+  const [conversionArtifactId, setConversionArtifactId] = useState<string | null>(null);
+  const [conversionFormat, setConversionFormat] = useState<DocumentFormat | null>(null);
+  const [defaultResumeFormat, setDefaultResumeFormat] = useState<DocumentFormat>("docx");
+  const [defaultCoverLetterFormat, setDefaultCoverLetterFormat] = useState<DocumentFormat>("docx");
+  const [compactDocumentLayout, setCompactDocumentLayout] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>("light");
   const [debugInfoEnabled, setDebugInfoEnabled] = useState(false);
@@ -137,6 +142,9 @@ export function App() {
   useEffect(() => {
     void getThemePreference().then(setTheme).catch(() => undefined);
     void isDebugInfoEnabled().then(setDebugInfoEnabled).catch(() => undefined);
+    void getDefaultResumeFormat().then(setDefaultResumeFormat).catch(() => undefined);
+    void getDefaultCoverLetterFormat().then(setDefaultCoverLetterFormat).catch(() => undefined);
+    void isCompactDocumentLayoutEnabled().then(setCompactDocumentLayout).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -220,6 +228,10 @@ export function App() {
       if (themeChange) setTheme(themeChange.newValue === "dark" ? "dark" : "light");
       const debugInfoChange = changes[DEBUG_INFO_ENABLED_STORAGE_KEY];
       if (debugInfoChange) setDebugInfoEnabled(debugInfoChange.newValue === true);
+      const resumeFormatChange = changes[DEFAULT_RESUME_FORMAT_STORAGE_KEY];
+      if (resumeFormatChange) setDefaultResumeFormat(resumeFormatChange.newValue === "pdf" ? "pdf" : "docx");
+      const coverLetterFormatChange = changes[DEFAULT_COVER_LETTER_FORMAT_STORAGE_KEY];
+      if (coverLetterFormatChange) setDefaultCoverLetterFormat(coverLetterFormatChange.newValue === "pdf" ? "pdf" : "docx");
     };
     chrome.runtime.onMessage.addListener(listener);
     chrome.storage.onChanged.addListener(storageListener);
@@ -338,13 +350,13 @@ export function App() {
     }
   };
 
-  const generateResume = async () => {
+  const generateResume = async (format: DocumentFormat = defaultResumeFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
     setBusy("resume"); setStatus("Generating resume…");
     try {
-      const file = await api.generateResume(sessionId, { signal: controller.signal });
+      const file = await api.generateResume(sessionId, format, { signal: controller.signal, compact: compactDocumentLayout });
       download(file);
       const updated = await api.session(sessionId);
       setActiveSession(updated);
@@ -354,13 +366,14 @@ export function App() {
     finally { inFlightRef.current = null; setBusy(null); }
   };
 
-  const generateCoverLetter = async () => {
+  const generateCoverLetter = async (format: DocumentFormat = defaultCoverLetterFormat) => {
     if (!activeSession) return;
     const sessionId = activeSession.id;
     const controller = startCancellable();
     setBusy("coverLetter"); setStatus("Generating cover letter...");
     try {
-      const file = await api.generateCoverLetter(sessionId, { signal: controller.signal });
+      const file = await api.generateCoverLetter(sessionId, format, { signal: controller.signal, compact: compactDocumentLayout });
+      download(file);
       const [updated, detail] = await Promise.all([api.session(sessionId), api.artifact(file.artifactId)]);
       setActiveSession(updated);
       setCoverLetter(detail);
@@ -398,6 +411,29 @@ export function App() {
     }
   };
 
+  const convertArtifact = async (artifactId: string, targetFormat: DocumentFormat) => {
+    if (!activeSession) return;
+    const sessionId = activeSession.id;
+    setBusy("convert");
+    setConversionArtifactId(artifactId);
+    setConversionFormat(targetFormat);
+    setStatus(`Converting existing document to ${targetFormat.toUpperCase()}…`);
+    try {
+      const file = await api.convertArtifact(artifactId, targetFormat, { compact: compactDocumentLayout });
+      download(file);
+      const updated = await api.session(sessionId);
+      setActiveSession(updated);
+      await refreshSessions();
+      setStatus("Converted file is ready for download.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not convert saved file.");
+    } finally {
+      setBusy(null);
+      setConversionArtifactId(null);
+      setConversionFormat(null);
+    }
+  };
+
   const closeSession = async (id: string) => {
     setOpenSessionIds((current) => current.filter((sessionId) => sessionId !== id));
     if (activeSession?.id === id) {
@@ -419,7 +455,9 @@ export function App() {
   const siteBlocked = isBlockedUrl(activeTab.url);
   const actionsDisabled = busy !== null || backend !== "connected" || !extensionActive || siteBlocked;
   const manualScanDisabled = busy !== null || backend !== "connected" || !extensionActive || !manualJobText.trim();
-  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession || siteBlocked;
+  // A blocked browser tab only prevents scanning that tab. Once a vacancy has
+  // been scanned (including via manual text), generation should remain usable.
+  const generationDisabled = busy !== null || !resumePresent || !extensionActive || !activeSession;
   const connectionLabel = !extensionActive ? "disabled" : backend;
 
   if (showOnboarding === null) {
@@ -460,7 +498,32 @@ export function App() {
       <section><h3>Responsibilities</h3><ul>{context?.responsibilities.length ? context.responsibilities.map((item) => <li key={item}>{item}</li>) : <li>Not explicitly detected</li>}</ul></section>
       <section><h3>Keywords</h3><div className="keywords">{context?.keywords.length ? context.keywords.map((word) => <span key={word}>{word}</span>) : "No keywords detected"}</div></section>
       {coverLetterBody && <section><div className="section-heading"><h3>Cover letter</h3><button className={coverLetterCopied ? "icon compact copy-button copied" : "icon compact copy-button"} type="button" aria-label={coverLetterCopied ? "Cover letter copied" : "Copy cover letter"} title={coverLetterCopied ? "Copied" : "Copy cover letter"} onClick={() => void copyCoverLetter()}>{coverLetterCopied ? "Copied" : "⧉"}</button></div><article className={coverLetterExpanded ? "cover-letter-card expanded" : "cover-letter-card"}><p>{coverLetterBody}</p></article><button className="secondary compact show-more-button" type="button" onClick={() => setCoverLetterExpanded((current) => !current)}>{coverLetterExpanded ? "Show less" : "Show more"}</button></section>}
-      {activeSession.artifacts.length > 0 && <section><h3>Saved files</h3>{activeSession.artifacts.map((artifact) => <article className="artifact" key={artifact.id}><strong>{artifact.title}</strong><small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>{artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>{busy === "download" && <ButtonSpinner />}{busy === "download" ? "Downloading..." : "Download"}</button>}</article>)}</section>}
+      {activeSession.artifacts.length > 0 && <section>
+        <h3>Saved files</h3>
+        {activeSession.artifacts.map((artifact) => {
+          const format = artifact.fileName?.toLowerCase().endsWith(".pdf")
+            ? "pdf"
+            : artifact.fileName?.toLowerCase().endsWith(".docx")
+              ? "docx"
+              : null;
+          const alternateFormat = format === "pdf" ? "docx" : format === "docx" ? "pdf" : null;
+          const converting = busy === "convert" && conversionArtifactId === artifact.id;
+          return <article className="artifact" key={artifact.id}>
+            <strong>{artifact.title}</strong>
+            <small>{artifact.artifactType.replace("_", " ")} · {artifact.llmProvider || "—"} · {artifact.llmModel || "—"} · {new Date(artifact.createdAt).toLocaleString()}</small>
+            <div className="artifact-actions">
+              {artifact.fileName && <button className="secondary compact" disabled={busy !== null} onClick={() => void downloadArtifact(artifact.id)}>
+                {busy === "download" && <ButtonSpinner />}
+                {busy === "download" ? "Downloading..." : `Download ${format ? format.toUpperCase() : "file"}`}
+              </button>}
+              {alternateFormat && <button className="secondary compact" disabled={busy !== null} onClick={() => void convertArtifact(artifact.id, alternateFormat)}>
+                {converting && conversionFormat === alternateFormat && <ButtonSpinner />}
+                {converting && conversionFormat === alternateFormat ? "Converting..." : `Download ${alternateFormat.toUpperCase()}`}
+              </button>}
+            </div>
+          </article>;
+        })}
+      </section>}
       {!resumePresent && <p className="warning">Upload a base resume before generating tailored materials.</p>}
       {debugInfoEnabled && <details open={showDebug} onToggle={(event) => setShowDebug((event.target as HTMLDetailsElement).open)}><summary>Debug information</summary><dl><dt>Canonical job key</dt><dd>{activeSession.canonicalJobKey}</dd><dt>Backend job session</dt><dd>{activeSession.id}</dd><dt>Active browser tab</dt><dd>{activeTab.id ?? "unknown"}</dd><dt>Full visible characters</dt><dd>{snapshot?.visibleText.length ?? 0}</dd><dt>Primary source</dt><dd>{snapshot?.primaryJobSource || "full_visible_text"}</dd><dt>Primary characters</dt><dd>{snapshot?.primaryJobText?.length ?? 0}</dd><dt>Detected form fields</dt><dd>{snapshot?.formFields.length ?? 0}</dd><dt>Extraction warnings</dt><dd>{snapshot?.extractionWarnings?.join("; ") || "None"}</dd><dt>LLM warnings</dt><dd>{context?.warnings.join("; ") || "None"}</dd></dl></details>}
     </section>}</>}
