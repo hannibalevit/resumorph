@@ -106,9 +106,9 @@ def _conversion_response(
     artifact: GeneratedArtifactModel,
     stored_format: dict[str, str],
     document: TailoredResume | CoverLetter,
-    warning: str,
+    warnings: list[str],
 ) -> ArtifactResponse:
-    notes = GenerationNotes(warnings=[warning])
+    notes = GenerationNotes(warnings=warnings)
     if isinstance(document, TailoredResume):
         notes.keywords_used = document.notes.keywords_used
         notes.missing_requirements = document.notes.missing_requirements
@@ -185,7 +185,7 @@ async def convert_artifact(
             artifact,
             stored_format,
             document,
-            f"Reused existing {target_format.upper()} without regenerating content.",
+            [f"Reused existing {target_format.upper()} without regenerating content."],
         )
 
     if source_format == target_format:
@@ -223,7 +223,7 @@ async def convert_artifact(
                 artifact,
                 stored_format,
                 document,
-                f"Reused existing {target_format.upper()} without regenerating content.",
+                [f"Reused existing {target_format.upper()} without regenerating content."],
             )
 
     try:
@@ -278,7 +278,7 @@ async def convert_artifact(
         artifact,
         {"fileName": file_name, "mimeType": mime_type, "base64": base64_file},
         document,
-        warnings[0],
+        warnings,
     )
 
 
