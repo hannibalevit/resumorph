@@ -1,6 +1,6 @@
 [project]
 name = "resumorph-server"
-version = "1.4.1"
+version = "1.5.0"
 description = "FastAPI backend for the ResuMorph Chrome extension"
 readme = "README.md"
 license = "Apache-2.0"

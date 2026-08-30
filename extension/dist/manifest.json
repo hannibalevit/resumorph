@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ResuMorph",
   "description": "Generate a tailored resume from a saved base resume and the active job page.",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "action": {
     "default_title": "ResuMorph",
     "default_icon": {

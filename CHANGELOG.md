@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-30
+
+### Bug Fixes
+
+- Address PDF review feedback and refine document actions ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Apply default formats and move alternate downloads ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Polish document action states and dark theme ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Reuse saved artifacts during format conversion ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Keep alternate formats on one saved artifact ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+
+### Documentation
+
+- Document DOCX and PDF output formats ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+
+### Features
+
+- Add PDF output for generated documents ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Convert saved documents without LLM regeneration ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
+- Complete PDF output refinements ([`be08440`](https://github.com/hannibalevit/resumorph/commit/be084406dca905e428f6e1baf2beebaf40cc7aad))
+
 ## [1.4.1] - 2026-08-20
 
 ### Bug Fixes
